@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: feedline
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/feedline
+    username: feedline
+    password: feedline
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+
+feed:
+  # Primary feed: tried first.  If it does not return valid RSS from this machine,
+  # the fetcher falls back to fallback-feed-url.
+  primary-feed-url: https://www.cbc.ca/webfeed/rss/rss-topstories
+  fallback-feed-url: https://feeds.bbci.co.uk/news/world/rss.xml
+
+  # Fixed delay between polling cycles; a java.time.Duration string ("60s" = 60 s).
+  poll-delay: 60s
+
+logging:
+  level:
+    ca.feedline: DEBUG
+    org.springframework.jdbc: WARN
+    org.flywaydb: WARN
