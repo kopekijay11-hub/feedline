@@ -1,0 +1,14 @@
+# Feedline
+
+## .gitignore
+
+target/
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.class
+*.log
+.DS_Store
