@@ -5,7 +5,7 @@ import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.io.SyndFeedInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.client.ClientHttpRequest;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -30,12 +30,18 @@ public class FeedFetcher {
     private static final List<String> ACCEPT = List.of(
             "application/rss+xml, application/xml, application/json, text/xml, text/html, */*");
 
-    private final RestClient restClient = RestClient.builder()
-            .defaultHeader("User-Agent", USER_AGENT)
-            .defaultHeader("Accept", String.join(", ", ACCEPT))
-            .connectTimeout(Duration.ofSeconds(10))
-            .responseTimeout(Duration.ofSeconds(10))
-            .build();
+    private final RestClient restClient;
+
+    public FeedFetcher() {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(10));
+        requestFactory.setReadTimeout(Duration.ofSeconds(10));
+        this.restClient = RestClient.builder()
+                .defaultHeader("User-Agent", USER_AGENT)
+                .defaultHeader("Accept", String.join(", ", ACCEPT))
+                .requestFactory(requestFactory)
+                .build();
+    }
 
     /**
      * Fetch the primary feed and, only if it does not return valid RSS, the fallback.

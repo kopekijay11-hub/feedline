@@ -7,13 +7,15 @@ import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.ItemRepository;
 import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
-import com.rometools.rome.feed.synd.SyndFeedInput;
+import com.rometools.rome.io.FeedException;
+import com.rometools.rome.io.SyndFeedInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.StringReader;
 import java.time.Instant;
 import java.util.List;
 
@@ -89,9 +91,14 @@ public class FeedPollerService {
     }
 
     private List<SyndEntry> parse(String content) {
-        SyndFeedInput input = new SyndFeedInput();
-        SyndFeed feed = input.build(new StringReader(content));
-        List<SyndEntry> entries = feed.getEntries();
-        return entries == null ? List.of() : entries;
+        try {
+            SyndFeedInput input = new SyndFeedInput();
+            SyndFeed feed = input.build(new StringReader(content));
+            List<SyndEntry> entries = feed.getEntries();
+            return entries == null ? List.of() : entries;
+        } catch (FeedException e) {
+            log.error("Failed to parse feed content", e);
+            return List.of();
+        }
     }
 }
