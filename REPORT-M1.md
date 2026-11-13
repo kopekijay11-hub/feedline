@@ -297,3 +297,23 @@ Date: 2026-11-12
   }
 }
 ```
+
+---
+
+## M1 close-out addendum
+
+Date: 2026-11-12
+
+**Fix 2+3 Supersession:** The Fix 2 Flyway upgrade to 10.16.0 is **SUPERSEDED** by Fix 3.
+
+**Final Flyway version:** 11.20.3 (with flyway-database-postgresql 11.20.3)
+
+**Documented PostgreSQL ceiling for Flyway 11.x:** PostgreSQL 16.x (Flyway 11.x uses `recommendFlywayUpgradeIfNecessaryForMajorVersion("17")` indicating support through PostgreSQL major version 16).
+
+**Operator-verified `mvn verify` results:**
+| Test | Tests run | Passed | Failed | Errors | Skipped |
+|---|---|---|---|---|---|
+| `FeedNormalizerTest` | 3 | 3 | 0 | 0 | 0 |
+| `FeedPollerIntegrationTest` | 2 | 2 | 0 | 0 | 0 |
+
+**Total:** 5 tests run, 5 passed, 0 failed, 0 errors, 0 skipped
