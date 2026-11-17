@@ -6,7 +6,7 @@
 ![Java 21](https://img.shields.io/badge/Java-21-blue)
 ![Spring Boot 3](https://img.shields.io/badge/Spring%20Boot-3.x-brightgreen)
 
-> Feedline is a skills showcase built with production habits: schema migrations from the first commit, integration tests against a real database, static analysis in the build, and a standing rule that a test which cannot pass honestly is reported — never weakened until it does.
+> Feedline is a skills showcase built to production standards: schema migrations from the first commit, integration tests against a real database, static analysis in the build, and a standing rule that a test which cannot pass honestly is reported — never weakened until it does.
 
 ---
 
