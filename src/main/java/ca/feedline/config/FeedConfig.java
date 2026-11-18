@@ -1,5 +1,6 @@
 package ca.feedline.config;
 
+import ca.feedline.service.FeedFetcher;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -15,5 +16,10 @@ public class FeedConfig {
     @ConfigurationProperties(prefix = "feed")
     public FeedProperties feedProperties() {
         return new FeedProperties();
+    }
+
+    @Bean
+    public FeedFetcher feedFetcher() {
+        return new FeedFetcher();
     }
 }
