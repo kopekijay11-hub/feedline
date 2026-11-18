@@ -188,7 +188,7 @@ public class RobotsTxtParser {
      * Represents the rules from a robots.txt file.
      */
     public static class RobotsRules {
-        private static final RobotsRules ALLOW_ALL = new RobotsRules(List.of());
+        static final RobotsRules ALLOW_ALL = new RobotsRules(List.of());
 
         private final List<Rule> rules;
 
