@@ -1,33 +1,39 @@
-# CI Diagnosis Report — Feedline
+# REPORT-CI — Feedline CI episode record
 
-## Step 1: Extracted Evidence (from operator / run 43362274791 context)
+Date: 2026-11-17  
+Branch: `main`  
+Fix commit (referenced): `ebf64e7` — "fix: register FeedFetcher bean in FeedConfig (fixes CI context failure)"  
+Safety-capture branch tip (referenced): `5629c3d5` on `wip/m2a-uncommitted-2026-11-17`
 
-**Run:** 43362274791 (commit 785bf7b), failed identically on 43395370434 (tip d3dbff4)  
-**Step:** "Run full verification" (`mvn verify`), exit code 1, `maven-surefire-plugin:3.2.5:test`  
-**Summary:** `Tests run: 5, Failures: 0, Errors: 2, Skipped: 0` (Spring test-context dump above summary — 2 context-load errors, not assertion failures)
+## 1. Step 1 evidence (CI run 43362274791)
 
-### Erroring tests (2)
-1. `ca.feedline.FeedPollerIntegrationTest.savesAndReadsBackItems`
-2. `ca.feedline.FeedPollerIntegrationTest.duplicateSourceGuid_isInsertIfAbsent`
+Failing CI run: **43362274791** (Feedline CI, main, push).
 
-### Root cause (verbatim, as provided)
-`UnsatisfiedDependencyException — feedPollerService constructor parameter 1 — No qualifying bean of type 'ca.feedline.service.FeedFetcher'`
+Two erroring tests:
+- `FeedPollerIntegrationTest.savesAndReadsBackItems`
+- `FeedPollerIntegrationTest.duplicateSourceGuid_isInsertIfAbsent`
 
-*(Full per-test `<<< ERROR!` sections and full `Caused by:` chain for the first erroring test: not accessible in this environment; `gh` unavailable and unauthenticated run-log API access returns 403. Operator-provided root cause recorded above.)*
+Root-cause chain (from that run):
+- `UnsatisfiedDependencyException` — `feedPollerService` constructor parameter 1 — no qualifying bean of type `ca.feedline.service.FeedFetcher`
 
-### Origin finding (verified, per operator instruction — do not re-derive)
-In the committed code on origin, `ca.feedline.service.FeedFetcher` is a plain class with no Spring annotation; `config/FeedConfig.java` registers only the `feedProperties` bean; no `@Bean` registration for `FeedFetcher` exists anywhere on origin. This is the environment difference: the tower's green run had help the repo doesn't contain (stale compiled classes/target or local state not reflected in origin).
+## 2. Root cause
 
-## Step 2: Environment difference (pending operator go)
+The committed M1 code never registered a `FeedFetcher` bean. `FeedFetcher` is a plain class and `FeedConfig` registered only `feedProperties`. CI was the first environment to run only the committed code.
 
-**Working hypothesis:** CI fails to load Spring context because `FeedPollerService` requires a `FeedFetcher` bean but origin does not define/register one; tower was green due to local/stale build artifacts or uncommitted local changes not present in CI checkout.
+## 3. Tower mechanism
 
-**Evidence:** CI context-load failure `No qualifying bean of type 'ca.feedline.service.FeedFetcher'` for `feedPollerService` constructor parameter 1; origin has no `@Component`/`@Service` on `FeedFetcher` and no `@Bean` factory for it.
+The tower's green runs rested on its working tree, which held a substantial uncommitted M2a build whose `FeedConfig` registers the fetcher bean.
 
-**Proposed smallest fix (pending go):** add the missing `@Bean` registration for `FeedFetcher` in `FeedConfig.java`. Before proposing/applying, also check `FeedNormalizer` (constructor parameter 2 of `FeedPollerService`) for the same gap and include only what is required. No CI/workflow changes; no test changes.
+`tower divergence was at M2a scale, not a stray registration.`
 
-## Working tree state (Step 2.2, this session)
-See assistant report for `git status --short`, `git diff --stat`, and relevant hunks.
+## 4. Option A sequence (as executed)
 
-## Outcome
-Pending.
+1. **Safety capture:** preserved the uncommitted tower state to `wip/m2a-uncommitted-2026-11-17` (tip `5629c3d5`).
+2. **One-bean fix on clean `main`:** registered `FeedFetcher` in `FeedConfig` in commit `ebf64e7` ("fix: register FeedFetcher bean in FeedConfig (fixes CI context failure)").
+3. **Verifications:**
+   - Operator's tower `mvn clean verify` on `main` @ `ebf64e7`: **BUILD SUCCESS** (finished 2026-11-17 23:39 EST).
+   - CI run **44238318507** (Feedline CI, `main`, push, commit `ebf64e7`): **completed success**.
+
+## 5. Closing note
+
+M2a is graded as a separate job from the wip branch; nothing in this report endorses that work.
