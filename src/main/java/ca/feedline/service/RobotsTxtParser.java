@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -153,7 +154,7 @@ public class RobotsTxtParser {
                 continue;
             }
 
-            String key = parts[0].trim().toLowerCase();
+            String key = parts[0].trim().toLowerCase(Locale.ROOT);
             String value = parts[1].trim();
 
             switch (key) {
@@ -170,6 +171,8 @@ public class RobotsTxtParser {
                     break;
                 case "allow":
                     rules.add(new Rule(currentUserAgent, value, true));
+                    break;
+                default:
                     break;
             }
         }
