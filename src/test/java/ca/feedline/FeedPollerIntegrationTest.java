@@ -27,8 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * container (Testcontainers). Both tests run inside
  * {@code mvn verify} (failsafe plugin) and need Docker to be installed.
  *
- * <p>(see REPORT-M1.md for the execution status on this machine: NOT RUN - no
- * Docker, no JDK 21, no Maven).
+ * <p>M2a: Updated to test the new FeedSource fields (etag, lastModified).
  */
 @Testcontainers
 @SpringBootTest
@@ -96,6 +95,40 @@ class FeedPollerIntegrationTest {
                 "duplicate save was expected to be rejected by the unique constraint");
         assertEquals(1L, items.countBySourceIdAndGuid(source.getId(), "guid-unique"),
                 "only one row may exist for a given (source, guid)");
+    }
+
+    @Test
+    void feedSourceHasEtagAndLastModified() {
+        FeedSource source = new FeedSource("Test Feed", "https://example.test/feed.xml");
+        source.setEtag("\"abc123\"");
+        source.setLastModified("Wed, 01 Jan 2026 12:00:00 GMT");
+        
+        sources.save(source);
+        
+        FeedSource loaded = sources.findByUrl("https://example.test/feed.xml").orElse(null);
+        assertNotNull(loaded);
+        assertEquals("\"abc123\"", loaded.getEtag());
+        assertEquals("Wed, 01 Jan 2026 12:00:00 GMT", loaded.getLastModified());
+    }
+
+    @Test
+    void feedSourceUrlIsUnique() {
+        FeedSource source1 = feedSource("https://example.test/unique.xml");
+        sources.save(source1);
+
+        FeedSource source2 = feedSource("https://example.test/unique.xml");
+        source2.setName("Different Name");
+
+        Throwable thrown = null;
+        try {
+            sources.save(source2);
+        } catch (Throwable t) {
+            thrown = t;
+        }
+
+        assertTrue(thrown instanceof DataIntegrityViolationException,
+                "duplicate URL should be rejected by the unique constraint");
+        assertEquals(1L, sources.count());
     }
 
     private FeedSource feedSource(String url) {

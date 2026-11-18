@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Duplicate GUIDs Feed</title>
+    <link>https://example.com/</link>
+    <description>This feed has duplicate GUIDs</description>
+    <item>
+      <title>First Item</title>
+      <link>https://example.com/first</link>
+      <guid>duplicate-guid</guid>
+    </item>
+    <item>
+      <title>Second Item with Same GUID</title>
+      <link>https://example.com/second</link>
+      <guid>duplicate-guid</guid>
+    </item>
+    <item>
+      <title>Third Item with Same GUID</title>
+      <link>https://example.com/third</link>
+      <guid>duplicate-guid</guid>
+    </item>
+    <item>
+      <title>Unique Item</title>
+      <link>https://example.com/unique</link>
+      <guid>unique-guid</guid>
+    </item>
+  </channel>
+</rss>

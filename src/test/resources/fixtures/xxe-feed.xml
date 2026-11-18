@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rss [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+  <!ENTITY xxe2 SYSTEM "https://example.com/external-entity">
+]>
+<rss version="2.0">
+  <channel>
+    <title>XXE Test Feed</title>
+    <link>https://example.com/</link>
+    <description>This feed has XXE entities</description>
+    <item>
+      <title>Item with XXE</title>
+      <link>https://example.com/xxe-test</link>
+      <guid>xxe-1</guid>
+      <description>&xxe;</description>
+    </item>
+    <item>
+      <title>Another Item with XXE</title>
+      <link>https://example.com/xxe-test2</link>
+      <guid>xxe-2</guid>
+      <description>&xxe2;</description>
+    </item>
+    <item>
+      <title>Normal Item</title>
+      <link>https://example.com/normal</link>
+      <guid>normal-1</guid>
+      <description>Normal description without XXE</description>
+    </item>
+  </channel>
+</rss>

@@ -29,6 +29,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code src/test/resources/fixtures/}. The tests run against that file - never
  * against the live network. A synthetic entry without a guid is added to exercise
  * the "missing GUID falls back to the entry link" rule.
+ *
+ * <p>M2a: Added deterministic synthetic GUID test - the same entry on a later poll
+ * dedupes instead of re-inserting.
  */
 class FeedNormalizerTest {
 
@@ -47,7 +50,7 @@ class FeedNormalizerTest {
 
     @Test
     void normalizesCapturedFeedWithNoDataLoss() throws Exception {
-        List<SyndEntry> entries = loadEntries("/fixtures/cbc-top-stories.xml");
+        List<SyndEntry> entries = loadEntries("/fixtures/cbc-top-stories-original.xml");
         Instant fetchedAt = Instant.parse("2026-11-12T12:00:00Z");
 
         assertEquals(entries.size(), 20, "captured feed must contain 20 items");
@@ -93,6 +96,68 @@ class FeedNormalizerTest {
         assertTrue(item.getGuid().length() > 0);
         assertEquals("https://example.com/", item.getLink());
         assertEquals("Empty story", item.getTitle());
+    }
+
+    @Test
+    void syntheticGuidIsDeterministic() {
+        // Test that the same entry produces the same GUID on multiple calls
+        SyndEntry entry1 = new SyndEntryImpl();
+        entry1.setTitle("Test Story");
+        entry1.setPublishedDate(java.util.Date.from(Instant.parse("2026-01-01T12:00:00Z")));
+
+        SyndEntry entry2 = new SyndEntryImpl();
+        entry2.setTitle("Test Story");
+        entry2.setPublishedDate(java.util.Date.from(Instant.parse("2026-01-01T12:00:00Z")));
+
+        Instant now = Instant.now();
+        Item item1 = normalizer.normalize(entry1, source, now);
+        Item item2 = normalizer.normalize(entry2, source, now);
+
+        assertEquals(item1.getGuid(), item2.getGuid(),
+                "Synthetic GUID must be deterministic for the same content");
+        assertTrue(item1.getGuid().length() > 40, "Synthetic GUID should be a SHA-256 hash (64 chars)");
+    }
+
+    @Test
+    void syntheticGuidWithLinkUsesLink() {
+        // When link is present but guid is missing, synthetic GUID should be based on link
+        SyndEntry entry = new SyndEntryImpl();
+        entry.setTitle("Story with link but no guid");
+        entry.setLink("https://example.com/story-123");
+
+        Item item1 = normalizer.normalize(entry, source, Instant.now());
+
+        // Create another entry with same link
+        SyndEntry entry2 = new SyndEntryImpl();
+        entry2.setTitle("Different title but same link");
+        entry2.setLink("https://example.com/story-123");
+
+        Item item2 = normalizer.normalize(entry2, source, Instant.now());
+
+        assertEquals(item1.getGuid(), item2.getGuid(),
+                "Synthetic GUID must be the same for entries with the same link");
+        assertEquals("https://example.com/story-123", item1.getGuid(),
+                "Synthetic GUID should be based on the link");
+    }
+
+    @Test
+    void syntheticGuidDifferentForDifferentContent() {
+        // Different content should produce different synthetic GUIDs
+        SyndEntry entry1 = new SyndEntryImpl();
+        entry1.setTitle("Story One");
+        entry1.setPublishedDate(java.util.Date.from(Instant.parse("2026-01-01T12:00:00Z")));
+
+        SyndEntry entry2 = new SyndEntryImpl();
+        entry2.setTitle("Story Two");
+        entry2.setPublishedDate(java.util.Date.from(Instant.parse("2026-01-01T12:00:00Z")));
+
+        Item item1 = normalizer.normalize(entry1, source, Instant.now());
+        Item item2 = normalizer.normalize(entry2, source, Instant.now());
+
+        assertNotNull(item1.getGuid());
+        assertNotNull(item2.getGuid());
+        assertFalse(item1.getGuid().equals(item2.getGuid()),
+                "Different content should produce different synthetic GUIDs");
     }
 
     private List<SyndEntry> loadEntries(String path) throws Exception {

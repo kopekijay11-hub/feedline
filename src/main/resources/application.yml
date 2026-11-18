@@ -25,13 +25,39 @@ spring:
     validate-on-migrate: true
 
 feed:
-  # Primary feed: tried first.  If it does not return valid RSS from this machine,
-  # the fetcher falls back to fallback-feed-url.
-  primary-feed-url: https://www.cbc.ca/webfeed/rss/rss-topstories
-  fallback-feed-url: https://feeds.bbci.co.uk/news/world/rss.xml
+  # Project URL for User-Agent header: Feedline/0.1 (+<feedline.user-agent-url>)
+  user-agent-url: https://github.com/kopekijay11-hub/feedline
 
-  # Fixed delay between polling cycles; a java.time.Duration string ("60s" = 60 s).
+  # Connect and read timeouts
+  connect-timeout: 5s
+  read-timeout: 15s
+
+  # Maximum response body size (5 MB default)
+  max-body-bytes: 5242880
+
+  # Minimum interval between requests to the same origin (default 1000 ms)
+  per-host-interval: 1000ms
+
+  # Maximum retries for network errors and HTTP 5xx (default 3)
+  max-retries: 3
+
+  # Maximum redirects to follow (default 3)
+  max-redirects: 3
+
+  # Fixed delay between polling cycles
   poll-delay: 60s
+
+  # Feed sources
+  sources:
+    - name: CBC Top Stories
+      url: https://www.cbc.ca/webfeed/rss/rss-topstories
+      enabled: true
+    - name: BBC News World
+      url: https://feeds.bbci.co.uk/news/world/rss.xml
+      enabled: true
+    - name: The Verge
+      url: https://www.theverge.com/rss/index.xml
+      enabled: true
 
 logging:
   level:

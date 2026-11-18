@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Malformed XML Feed</title>
+    <link>https://example.com/</link>
+    <description>This feed has malformed XML</description>
+    <item>
+      <title>Valid Item</title>
+      <link>https://example.com/valid</link>
+      <guid>valid-1</guid>
+    </item>
+    <item>
+      <title>Item with unclosed tag
+      <link>https://example.com/invalid</link>
+      <guid>invalid-1</guid>
+    </item>
+  </channel>
+</rss>

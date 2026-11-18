@@ -30,6 +30,12 @@ public class FeedSource {
     @Column(nullable = false)
     private boolean enabled = true;
 
+    @Column(name = "etag", columnDefinition = "TEXT")
+    private String etag;
+
+    @Column(name = "last_modified", columnDefinition = "TEXT")
+    private String lastModified;
+
     public FeedSource() {
     }
 
@@ -68,5 +74,21 @@ public class FeedSource {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public String getEtag() {
+        return etag;
+    }
+
+    public void setEtag(String etag) {
+        this.etag = etag;
+    }
+
+    public String getLastModified() {
+        return lastModified;
+    }
+
+    public void setLastModified(String lastModified) {
+        this.lastModified = lastModified;
     }
 }
