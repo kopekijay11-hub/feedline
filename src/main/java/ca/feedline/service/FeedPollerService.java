@@ -8,7 +8,6 @@ import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.ItemRepository;
 import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
-import com.rometools.rome.io.FeedException;
 import com.rometools.rome.io.SyndFeedInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.StringReader;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -187,8 +185,12 @@ public class FeedPollerService {
         for (SyndEntry entry : entries) {
             try {
                 Item item = normalizer.normalize(entry, source, fetchedAt);
-                items.save(item);
-                saved++;
+                // Insert-if-absent: enforced by DB uniqueness, but we pre-check to avoid
+                // constraint violations poisoning the current transaction.
+                if (items.findBySourceIdAndGuid(source.getId(), item.getGuid()).isEmpty()) {
+                    items.save(item);
+                    saved++;
+                }
             } catch (Exception e) {
                 log.error("Failed to normalize entry from {}: {}", url, e.getMessage());
                 // Continue with other entries - one bad entry shouldn't stop the whole feed
@@ -237,16 +239,21 @@ public class FeedPollerService {
     /**
      * Parse feed content with Rome.
      *
+     * <p>Parsing is hardened against XXE/entity expansion by disallowing DOCTYPE
+     * declarations, so untrusted feed content cannot define or resolve external
+     * entities.
+     *
      * @param content the feed XML content
-     * @return list of entries
+     * @return list of entries, or empty list if parsing fails
      */
     List<SyndEntry> parse(String content) {
         try {
             SyndFeedInput input = new SyndFeedInput();
+            input.setAllowDoctypes(false);
             SyndFeed feed = input.build(new StringReader(content));
             List<SyndEntry> entries = feed.getEntries();
             return entries == null ? List.of() : entries;
-        } catch (FeedException e) {
+        } catch (Exception e) {
             log.error("Failed to parse feed content", e);
             return List.of();
         }

@@ -1,0 +1,164 @@
+package ca.feedline;
+
+import ca.feedline.config.FeedProperties.Source;
+import ca.feedline.repository.FeedSourceRepository;
+import ca.feedline.repository.ItemRepository;
+import ca.feedline.service.FeedPollerService;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+/**
+ * Integration tests exercising the M2a feed fixtures through the poller.
+ */
+@Testcontainers
+@SpringBootTest
+class FeedPollerFixtureIntegrationTest {
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16.16-alpine")
+            .withDatabaseName("feedline")
+            .withUsername("feedline")
+            .withPassword("feedline");
+
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("feed.poll-delay", () -> "999999h");
+    }
+
+    @Autowired
+    private FeedPollerService pollerService;
+
+    @Autowired
+    private ItemRepository items;
+
+    @Autowired
+    private FeedSourceRepository sources;
+
+    private HttpServer server;
+    private int port;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        items.deleteAll();
+        sources.deleteAll();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.start();
+        port = server.getAddress().getPort();
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (server != null) {
+            server.stop(0);
+        }
+        items.deleteAll();
+        sources.deleteAll();
+    }
+
+    @Test
+    void xxeFeed_isRejectedSafely_noExternalEntityResolution_nothingIngested() {
+        serveFixture("/feed", "/fixtures/xxe-feed.xml");
+
+        Source source = source("/feed", "XXE Fixture");
+        int saved = assertDoesNotThrow(() -> pollerService.pollSingleSource(source),
+                "XXE feed must not crash the poller");
+
+        assertEquals(0, saved, "Rejected XXE feed must ingest nothing");
+        assertEquals(0, items.count(), "No items may be stored from a rejected XXE feed");
+    }
+
+    @Test
+    void malformedXml_failsPollInIsolation_withoutCrashingPoller() {
+        serveFixture("/feed", "/fixtures/malformed-xml.xml");
+
+        Source source = source("/feed", "Malformed Fixture");
+        int saved = assertDoesNotThrow(() -> pollerService.pollSingleSource(source),
+                "Malformed XML must not crash the poller");
+
+        assertEquals(0, saved, "Malformed XML poll must save no items");
+        assertEquals(0, items.count(), "No items may be stored from malformed XML");
+    }
+
+    @Test
+    void emptyFeed_pollsCleanly_withZeroItems() {
+        serveFixture("/feed", "/fixtures/empty-feed.xml");
+
+        Source source = source("/feed", "Empty Fixture");
+        int saved = assertDoesNotThrow(() -> pollerService.pollSingleSource(source),
+                "Empty feed must not crash the poller");
+
+        assertEquals(0, saved, "Empty feed must save zero items");
+        assertEquals(0, items.count(), "Empty feed must leave no items stored");
+    }
+
+    @Test
+    void duplicateGuids_ingestsEachGuidOnce() {
+        serveFixture("/feed", "/fixtures/duplicate-guids.xml");
+
+        Source source = source("/feed", "Duplicate GUIDs Fixture");
+        int saved = assertDoesNotThrow(() -> pollerService.pollSingleSource(source),
+                "Duplicate-GUID feed must not crash the poller");
+
+        assertEquals(2, saved, "Only distinct GUIDs may be ingested");
+        assertEquals(2, items.count(), "Duplicate GUID entries must not create extra rows");
+    }
+
+    private void serveFixture(String path, String resourcePath) {
+        String body = readResource(resourcePath);
+        server.createContext(path, new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/rss+xml; charset=utf-8");
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(bytes);
+                }
+            }
+        });
+    }
+
+    private Source source(String path, String name) {
+        Source source = new Source(name, feedUrl(path));
+        source.setEnabled(true);
+        return source;
+    }
+
+    private String feedUrl(String path) {
+        return "http://localhost:" + port + path;
+    }
+
+    private String readResource(String resourcePath) {
+        try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
+            if (is == null) {
+                throw new IllegalArgumentException("Fixture not found: " + resourcePath);
+            }
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to read fixture: " + resourcePath, e);
+        }
+    }
+}
