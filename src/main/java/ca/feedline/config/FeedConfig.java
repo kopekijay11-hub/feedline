@@ -2,7 +2,6 @@ package ca.feedline.config;
 
 import ca.feedline.service.FeedFetchConfig;
 import ca.feedline.service.FeedFetcher;
-import ca.feedline.service.FeedNormalizer;
 import ca.feedline.service.RobotsTxtParser;
 import ca.feedline.service.Sleeper;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -20,11 +19,6 @@ import java.time.Clock;
 @Configuration
 @EnableConfigurationProperties(FeedProperties.class)
 public class FeedConfig {
-
-    @Bean
-    public FeedProperties feedProperties() {
-        return new FeedProperties();
-    }
 
     @Bean
     public FeedFetchConfig feedFetchConfig(FeedProperties feedProperties) {
@@ -50,15 +44,10 @@ public class FeedConfig {
     }
 
     @Bean
-    public FeedNormalizer feedNormalizer() {
-        return new FeedNormalizer();
-    }
-
-    @Bean
     public FeedFetcher feedFetcher(FeedFetchConfig config, Sleeper sleeper, Clock clock) {
         // Create robots parser with config
         RobotsTxtParser robotsParser = new RobotsTxtParser(config);
-        
+
         // Create fetcher with all dependencies
         return new FeedFetcher(config, robotsParser, sleeper, clock);
     }

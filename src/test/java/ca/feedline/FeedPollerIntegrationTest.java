@@ -24,8 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Integration tests for the persistence layer against a real PostgreSQL
- * container (Testcontainers). Both tests run inside
- * {@code mvn verify} (failsafe plugin) and need Docker to be installed.
+ * container (Testcontainers). These tests run under Maven Surefire
+ * ({@code mvn test} / {@code mvn verify}) because the class name ends with
+ * {@code *Test}, and they need Docker to be installed.
  *
  * <p>M2a: Updated to test the new FeedSource fields (etag, lastModified).
  */
