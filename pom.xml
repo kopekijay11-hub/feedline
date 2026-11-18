@@ -93,6 +93,7 @@
                     <failOnError>false</failOnError>
                     <xmlOutput>true</xmlOutput>
                     <outputDirectory>${project.build.directory}/spotbugs</outputDirectory>
+                    <excludeFilterFile>${project.basedir}/spotbugs-exclude.xml</excludeFilterFile>
                 </configuration>
                 <executions>
                     <execution>

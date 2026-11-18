@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+  <!-- EI_EXPOSE_REP / EI_EXPOSE_REP2: Spring @ConfigurationProperties objects are mutable
+       bind targets managed by the framework; defensive copies would break binding semantics. -->
+  <Match>
+    <Class name="ca.feedline.config.FeedProperties"/>
+    <Or>
+      <Bug pattern="EI_EXPOSE_REP"/>
+      <Bug pattern="EI_EXPOSE_REP2"/>
+    </Or>
+  </Match>
+
+  <!-- EI_EXPOSE_REP / EI_EXPOSE_REP2: JPA entity associations are intentionally exposed as
+       managed references for ORM navigation and persistence; copying would break entity semantics. -->
+  <Match>
+    <Class name="ca.feedline.domain.Item"/>
+    <Or>
+      <Bug pattern="EI_EXPOSE_REP"/>
+      <Bug pattern="EI_EXPOSE_REP2"/>
+    </Or>
+  </Match>
+
+  <!-- EI_EXPOSE_REP2: constructor-held Spring/service collaborators are injected dependencies,
+       not defensively-copied value objects. -->
+  <Match>
+    <Class name="ca.feedline.service.FeedFetcher"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.service.FeedPollerService"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+
+  <!-- EI_EXPOSE_REP2: RobotsRules is an internal immutable-by-convention holder constructed
+       from a freshly parsed list within the parser; no external mutable ownership is exposed. -->
+  <Match>
+    <Class name="ca.feedline.service.RobotsTxtParser$RobotsRules"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+
+  <!-- REC_CATCH_EXCEPTION: deliberate broad catches at fetch/parse/network boundaries to
+       convert failures into controlled retry/skip behavior and keep polling resilient. -->
+  <Match>
+    <Class name="ca.feedline.service.FeedFetcher"/>
+    <Method name="fetchWithRetry"/>
+    <Bug pattern="REC_CATCH_EXCEPTION"/>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.service.FeedPollerService"/>
+    <Or>
+      <Method name="extractNameFromUrl"/>
+      <Method name="parse"/>
+    </Or>
+    <Bug pattern="REC_CATCH_EXCEPTION"/>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.service.RobotsTxtParser"/>
+    <Or>
+      <Method name="fetchRobots"/>
+      <Method name="fetchRobotsContent"/>
+    </Or>
+    <Bug pattern="REC_CATCH_EXCEPTION"/>
+  </Match>
+</FindBugsFilter>

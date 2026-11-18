@@ -85,7 +85,6 @@ public class FeedPollerService {
 
             int totalSaved = 0;
             int totalSourcesProcessed = 0;
-            int skippedBy304 = 0;
 
             for (Source sourceConfig : configuredSources) {
                 if (!sourceConfig.isEnabled()) {
@@ -95,10 +94,6 @@ public class FeedPollerService {
 
                 try {
                     int saved = pollSingleSource(sourceConfig);
-                    if (saved == 0) {
-                        // Check if it was a 304
-                        // We'll track this separately
-                    }
                     totalSaved += saved;
                     totalSourcesProcessed++;
                 } catch (Exception ex) {
