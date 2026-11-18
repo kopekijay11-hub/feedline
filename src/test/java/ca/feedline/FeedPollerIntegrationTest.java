@@ -123,6 +123,7 @@ class FeedPollerIntegrationTest {
         Throwable thrown = null;
         try {
             sources.save(source2);
+            sources.flush();
         } catch (Throwable t) {
             thrown = t;
         }

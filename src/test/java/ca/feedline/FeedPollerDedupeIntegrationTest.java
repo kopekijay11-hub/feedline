@@ -109,7 +109,9 @@ class FeedPollerDedupeIntegrationTest {
         Instant fetchedAt1 = Instant.now();
         for (com.rometools.rome.feed.synd.SyndEntry entry : entries) {
             Item item = feedNormalizer.normalize(entry, source, fetchedAt1);
-            items.save(item);
+            if (items.findBySourceIdAndGuid(source.getId(), item.getGuid()).isEmpty()) {
+                items.save(item);
+            }
         }
 
         // Count rows
@@ -120,7 +122,9 @@ class FeedPollerDedupeIntegrationTest {
         Instant fetchedAt2 = Instant.now();
         for (com.rometools.rome.feed.synd.SyndEntry entry : entries) {
             Item item = feedNormalizer.normalize(entry, source, fetchedAt2);
-            items.save(item);
+            if (items.findBySourceIdAndGuid(source.getId(), item.getGuid()).isEmpty()) {
+                items.save(item);
+            }
         }
 
         // Count rows again
@@ -159,7 +163,9 @@ class FeedPollerDedupeIntegrationTest {
 
         // Second save with same content
         Item item2 = feedNormalizer.normalize(entry2, source, Instant.now());
-        items.save(item2);
+        if (items.findBySourceIdAndGuid(source.getId(), item2.getGuid()).isEmpty()) {
+            items.save(item2);
+        }
 
         // Should only have 1 item
         long count = countItems();
