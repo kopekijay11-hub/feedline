@@ -19,4 +19,6 @@ public interface ItemRepository extends JpaRepository<Item, Long> {
     long countBySourceIdAndGuid(Long sourceId, String guid);
 
     Optional<Item> findBySourceIdAndGuid(Long sourceId, String guid);
+
+    Optional<Item> findByGuid(String guid);
 }
