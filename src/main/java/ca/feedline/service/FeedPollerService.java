@@ -241,19 +241,14 @@ public class FeedPollerService {
      * @param content the feed XML content
      * @return list of entries, or empty list if parsing fails
      */
-    List<SyndEntry> parse(String content) {
+    List<SyndEntry> parse(String content) throws Exception {
         if (content != null && content.startsWith("\uFEFF")) {
             content = content.substring(1);
         }
-        try {
-            SyndFeedInput input = new SyndFeedInput();
-            input.setAllowDoctypes(false);
-            SyndFeed feed = input.build(new StringReader(content));
-            List<SyndEntry> entries = feed.getEntries();
-            return entries == null ? List.of() : entries;
-        } catch (Exception e) {
-            log.error("Failed to parse feed content", e);
-            return List.of();
-        }
+        SyndFeedInput input = new SyndFeedInput();
+        input.setAllowDoctypes(false);
+        SyndFeed feed = input.build(new StringReader(content));
+        List<SyndEntry> entries = feed.getEntries();
+        return entries == null ? List.of() : entries;
     }
 }
