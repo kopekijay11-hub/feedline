@@ -49,9 +49,6 @@ feed:
 
   # Feed sources
   sources:
-    - name: CBC Top Stories
-      url: https://www.cbc.ca/webfeed/rss/rss-topstories
-      enabled: true
     - name: BBC News World
       url: https://feeds.bbci.co.uk/news/world/rss.xml
       enabled: true
@@ -78,6 +75,9 @@ feed:
       enabled: true
     - name: Bank of Canada Press Releases
       url: https://www.bankofcanada.ca/content_type/press-releases/feed/
+      enabled: true
+    - name: CNBC Top News
+      url: https://www.cnbc.com/id/100003114/device/rss/rss.html
       enabled: true
 
 logging:
