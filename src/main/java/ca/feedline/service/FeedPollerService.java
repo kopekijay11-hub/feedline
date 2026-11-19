@@ -242,7 +242,10 @@ public class FeedPollerService {
      * @return list of entries, or empty list if parsing fails
      */
     List<SyndEntry> parse(String content) throws Exception {
-        if (content != null && content.startsWith("\uFEFF")) {
+        if (content == null) {
+            throw new IllegalArgumentException("content must not be null");
+        }
+        if (content.startsWith("\uFEFF")) {
             content = content.substring(1);
         }
         SyndFeedInput input = new SyndFeedInput();
