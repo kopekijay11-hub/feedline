@@ -76,6 +76,9 @@ feed:
     - name: Bank of Canada Press Releases
       url: https://www.bankofcanada.ca/content_type/press-releases/feed/
       enabled: true
+    - name: CNBC Top News
+      url: https://www.cnbc.com/id/100003114/device/rss/rss.html
+      enabled: true
 
 logging:
   level:
