@@ -30,7 +30,7 @@ class ApplicationContextSmokeTest {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
-        registry.add("feed.poll-delay", () -> "999999h");
+        registry.add("feed.poll-delay", () -> "86400000");
     }
 
     @Autowired

@@ -45,7 +45,7 @@ feed:
   max-redirects: 3
 
   # Fixed delay between polling cycles
-  poll-delay: 60s
+  poll-delay: "60000"
 
   # Feed sources
   sources:

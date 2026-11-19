@@ -63,7 +63,7 @@ class FeedPollerDedupeIntegrationTest {
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         // Disable scheduling for tests
-        registry.add("feed.poll-delay", () -> "999999h");
+        registry.add("feed.poll-delay", () -> "86400000");
     }
 
     @Autowired
