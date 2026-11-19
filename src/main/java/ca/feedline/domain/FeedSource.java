@@ -1,5 +1,7 @@
 package ca.feedline.domain;
 
+import java.time.Instant;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -35,6 +37,18 @@ public class FeedSource {
 
     @Column(name = "last_modified", columnDefinition = "TEXT")
     private String lastModified;
+
+    @Column(name = "last_attempt_at")
+    private Instant lastAttemptAt;
+
+    @Column(name = "last_success_at")
+    private Instant lastSuccessAt;
+
+    @Column(name = "last_error_class", length = 64)
+    private String lastErrorClass;
+
+    @Column(name = "consecutive_failures", nullable = false)
+    private int consecutiveFailures = 0;
 
     public FeedSource() {
     }
@@ -90,5 +104,37 @@ public class FeedSource {
 
     public void setLastModified(String lastModified) {
         this.lastModified = lastModified;
+    }
+
+    public Instant getLastAttemptAt() {
+        return lastAttemptAt;
+    }
+
+    public void setLastAttemptAt(Instant lastAttemptAt) {
+        this.lastAttemptAt = lastAttemptAt;
+    }
+
+    public Instant getLastSuccessAt() {
+        return lastSuccessAt;
+    }
+
+    public void setLastSuccessAt(Instant lastSuccessAt) {
+        this.lastSuccessAt = lastSuccessAt;
+    }
+
+    public String getLastErrorClass() {
+        return lastErrorClass;
+    }
+
+    public void setLastErrorClass(String lastErrorClass) {
+        this.lastErrorClass = lastErrorClass;
+    }
+
+    public int getConsecutiveFailures() {
+        return consecutiveFailures;
+    }
+
+    public void setConsecutiveFailures(int consecutiveFailures) {
+        this.consecutiveFailures = consecutiveFailures;
     }
 }

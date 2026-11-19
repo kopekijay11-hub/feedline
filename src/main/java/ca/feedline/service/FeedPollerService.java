@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.StringReader;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.Optional;
 
 /**
@@ -56,6 +57,8 @@ public class FeedPollerService {
     private final FeedSourceRepository feedSources;
     private final ItemRepository items;
 
+    private volatile Instant lastCompletedPollCycle = null;
+
     public FeedPollerService(FeedProperties config, FeedFetcher fetcher, FeedNormalizer normalizer,
                              FeedSourceRepository feedSources, ItemRepository items) {
         this.config = config;
@@ -63,6 +66,14 @@ public class FeedPollerService {
         this.normalizer = normalizer;
         this.feedSources = feedSources;
         this.items = items;
+    }
+
+    /**
+     * Time at which the most recent full poll cycle completed. {@code null} until
+     * the first cycle has finished (its own state, not "just now").
+     */
+    public Instant getLastCompletedPollCycle() {
+        return lastCompletedPollCycle;
     }
 
     /**
@@ -107,6 +118,7 @@ public class FeedPollerService {
         } catch (Exception ex) {
             log.error("Feed poll cycle failed - continuing", ex);
         } finally {
+            lastCompletedPollCycle = Instant.now();
             log.debug("Poll cycle took {} ms", System.currentTimeMillis() - started);
         }
     }
@@ -120,91 +132,119 @@ public class FeedPollerService {
     @Transactional
     public int pollSingleSource(Source sourceConfig) {
         String url = sourceConfig.getUrl();
-        
-        // Find or create the feed source
-        Optional<FeedSource> existingSource = feedSources.findByUrl(url);
+        Instant attemptAt = Instant.now();
+
+        Optional<FeedSource> existingSource = null;
+        try {
+            existingSource = feedSources.findByUrl(url);
+        } catch (Exception ignored) {
+            existingSource = Optional.empty();
+        }
         FeedSource source;
-        
-        if (existingSource.isPresent()) {
+        if (existingSource != null && existingSource.isPresent()) {
             source = existingSource.get();
         } else {
-            // Create new source with name from config or URL
             String name = sourceConfig.getName();
             if (name == null || name.isBlank()) {
                 name = extractNameFromUrl(url);
             }
             source = new FeedSource(name, url);
             source.setEnabled(sourceConfig.isEnabled());
-            source = feedSources.save(source);
-            log.info("Created new feed source: {} (id={})", name, source.getId());
-        }
-
-        // Get current validators
-        String currentEtag = source.getEtag();
-        String currentLastModified = source.getLastModified();
-
-        // Fetch the feed
-        FeedFetchResult result = fetcher.fetch(url, currentEtag, currentLastModified);
-
-        // Check for robots disallowed
-        if (result.robotsDisallowed()) {
-            log.info("Source {} disallowed by robots.txt - skipping", url);
-            return 0;
-        }
-
-        // Check for 304 Not Modified
-        if (result.httpCode() == 304) {
-            log.info("Source {} not modified (304) - skipping", url);
-            return 0;
-        }
-
-        // Check for failure
-        if (!result.ok()) {
-            log.warn("Failed to fetch {}: HTTP {}", url, result.httpCode());
-            return 0;
-        }
-
-        // Parse the feed
-        List<SyndEntry> entries;
-        try {
-            entries = parse(result.content());
-        } catch (Exception e) {
-            log.error("Failed to parse feed from {}: {}", url, e.getMessage());
-            // DO NOT update validators - transaction will rollback
-            return 0;
-        }
-
-        // Normalize and save entries
-        Instant fetchedAt = Instant.now();
-        int saved = 0;
-        for (SyndEntry entry : entries) {
             try {
-                Item item = normalizer.normalize(entry, source, fetchedAt);
-                // Insert-if-absent: enforced by DB uniqueness, but we pre-check to avoid
-                // constraint violations poisoning the current transaction.
-                if (items.findBySourceIdAndGuid(source.getId(), item.getGuid()).isEmpty()) {
-                    items.save(item);
-                    saved++;
+                FeedSource saved = feedSources.save(source);
+                if (saved != null) {
+                    source = saved;
                 }
+                log.info("Created new feed source: {} (id={})", name, source.getId());
             } catch (Exception e) {
-                log.error("Failed to normalize entry from {}: {}", url, e.getMessage());
-                // Continue with other entries - one bad entry shouldn't stop the whole feed
+                try {
+                    Optional<FeedSource> found = feedSources.findByUrl(url);
+                    if (found != null && found.isPresent()) {
+                        source = found.get();
+                    }
+                } catch (Exception ignored) {
+                }
             }
         }
 
-        // Only update validators if we successfully fetched and parsed
-        // This implements the validator transaction rule: validators persist
-        // ONLY in the same transaction as a successful ingest commit
-        if (result.hasNewValidators()) {
-            source.setEtag(result.newEtag());
-            source.setLastModified(result.newLastModified());
-            feedSources.save(source);
-            log.debug("Updated validators for {}: ETag={}, Last-Modified={}",
-                    url, result.newEtag(), result.newLastModified());
-        }
+        source.setLastAttemptAt(attemptAt);
 
-        log.info("Polled {} (source id {}) -> {} items saved at {}", url, source.getId(), saved, fetchedAt);
-        return saved;
+        String currentEtag = source.getEtag();
+        String currentLastModified = source.getLastModified();
+
+        try {
+            FeedFetchResult result = fetcher.fetch(url, currentEtag, currentLastModified);
+
+            if (result.robotsDisallowed()) {
+                log.info("Source {} disallowed by robots.txt - skipping", url);
+                source.setLastErrorClass("ROBOTS");
+                source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
+                feedSources.save(source);
+                return 0;
+            }
+
+            if (result.httpCode() == 304) {
+                log.info("Source {} not modified (304) - skipping", url);
+                source.setLastSuccessAt(Instant.now());
+                source.setLastErrorClass(null);
+                source.setConsecutiveFailures(0);
+                feedSources.save(source);
+                return 0;
+            }
+
+            if (!result.ok()) {
+                log.warn("Failed to fetch {}: HTTP {}", url, result.httpCode());
+                String errorClass = result.httpCode() == 0 ? "NETWORK" : "HTTP_" + result.httpCode();
+                source.setLastErrorClass(errorClass);
+                source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
+                feedSources.save(source);
+                return 0;
+            }
+
+            List<SyndEntry> entries;
+            try {
+                entries = parse(result.content());
+            } catch (Exception e) {
+                log.error("Failed to parse feed from {}: {}", url, e.getMessage());
+                source.setLastErrorClass("PARSE");
+                source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
+                feedSources.save(source);
+                return 0;
+            }
+
+            Instant fetchedAt = Instant.now();
+            int saved = 0;
+            for (SyndEntry entry : entries) {
+                try {
+                    Item item = normalizer.normalize(entry, source, fetchedAt);
+                    if (items.findBySourceIdAndGuid(source.getId(), item.getGuid()).isEmpty()) {
+                        items.save(item);
+                        saved++;
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to normalize entry from {}: {}", url, e.getMessage());
+                }
+            }
+
+            if (result.hasNewValidators()) {
+                source.setEtag(result.newEtag());
+                source.setLastModified(result.newLastModified());
+            }
+
+            source.setLastSuccessAt(fetchedAt);
+            source.setLastErrorClass(null);
+            source.setConsecutiveFailures(0);
+            feedSources.save(source);
+
+            log.info("Polled {} (source id {}) -> {} items saved at {}", url, source.getId(), saved, fetchedAt);
+            return saved;
+        } catch (Exception ex) {
+            log.error("Error polling source {}: {}", url, ex.getMessage());
+            source.setLastErrorClass("NETWORK");
+            source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
+            feedSources.save(source);
+            return 0;
+        }
     }
 
     /**
