@@ -55,18 +55,19 @@ class ItemsApiSeamTest {
             .withUsername("feedline")
             .withPassword("feedline");
 
-    static final AtomicReference<String> mode = new AtomicReference<>("ok");
+    static final AtomicReference<String> feedBody = new AtomicReference<>();
     static final HttpServer server;
     static final int port;
     static {
         try {
+            feedBody.set(readResourceStatic("/fixtures/bbc-world-rss.xml"));
             server = HttpServer.create(new InetSocketAddress(0), 0);
             server.start();
             port = server.getAddress().getPort();
             server.createContext("/feed", new HttpHandler() {
                 @Override
                 public void handle(HttpExchange exchange) throws IOException {
-                    String body = readResourceStatic("/fixtures/bbc-world-rss.xml");
+                    String body = feedBody.get();
                     byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
                     exchange.getResponseHeaders().set("Content-Type", "application/rss+xml; charset=utf-8");
                     exchange.sendResponseHeaders(200, bytes.length);
@@ -121,12 +122,14 @@ class ItemsApiSeamTest {
         items.deleteAll();
         sources.deleteAll();
         initializer.run(null);
+        feedBody.set(readResourceStatic("/fixtures/bbc-world-rss.xml"));
     }
 
     @AfterEach
     void tearDown() {
         items.deleteAll();
         sources.deleteAll();
+        feedBody.set(readResourceStatic("/fixtures/bbc-world-rss.xml"));
     }
 
     private JsonNode getJson(String path) throws Exception {
@@ -137,14 +140,19 @@ class ItemsApiSeamTest {
     @Test
     void canary_searchAndSourceFilter() throws Exception {
         poller.pollOnce();
-        JsonNode search = getJson("/api/v1/items?q=BBC&size=100");
-        assertThat(search.get("items").size()).isGreaterThan(0);
-        long total = search.get("total").asLong();
-        assertThat(total).isGreaterThan(0);
+        assertThat(items.count()).isEqualTo(29);
+        assertThat(sources.count()).isEqualTo(1);
+
+        JsonNode search = getJson("/api/v1/items?q=Zelensky&size=100");
+        assertThat(search.get("total").asLong()).isEqualTo(1);
+        assertThat(search.get("items")).hasSize(1);
+        assertThat(search.get("items").get(0).get("title").asText())
+                .isEqualTo("US envoys meet Zelensky in Dublin after talks with Putin in Moscow");
 
         Long sourceId = sources.findAll().get(0).getId();
         JsonNode bySource = getJson("/api/v1/items?source=" + sourceId + "&size=100");
-        assertThat(bySource.get("total").asLong()).isGreaterThan(0);
+        assertThat(bySource.get("total").asLong()).isEqualTo(items.count());
+        assertThat(bySource.get("items")).hasSize((int) items.count());
         for (JsonNode it : bySource.get("items")) {
             assertThat(it.get("sourceId").asLong()).isEqualTo(sourceId);
         }
@@ -159,47 +167,71 @@ class ItemsApiSeamTest {
                     assertThat(ct).contains("problem+json");
                     assertThat(result.getResponse().getContentAsString()).contains("serach");
                 });
+        mockMvc.perform(get("/api/v1/sources/health?serach=foo"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> {
+                    assertThat(result.getResponse().getContentType()).contains("problem+json");
+                    assertThat(result.getResponse().getContentAsString()).contains("serach");
+                });
     }
 
     @Test
     void pagination_boundaryAndWalk() throws Exception {
         poller.pollOnce();
-        long total = getJson("/api/v1/items?size=1").get("total").asLong();
+        int total = (int) items.count();
         assertThat(total).isGreaterThan(5);
 
-        // walk with size 3
+        JsonNode defaults = getJson("/api/v1/items");
+        assertThat(defaults.get("items")).hasSize(20);
+        assertThat(defaults.get("hasMore").asBoolean()).isTrue();
+
         int size = 3;
         Set<Long> seen = new HashSet<>();
         String cursor = null;
+        JsonNode lastPage = null;
         int pages = 0;
         while (true) {
             String url = "/api/v1/items?size=" + size + (cursor == null ? "" : "&cursor=" + cursor);
             JsonNode page = getJson(url);
             assertThat(page.get("total").asLong()).isEqualTo(total);
             for (JsonNode it : page.get("items")) {
-                long id = it.get("id").asLong();
-                assertThat(seen.add(id)).isTrue();
+                assertThat(seen.add(it.get("id").asLong())).isTrue();
             }
             pages++;
             if (!page.get("hasMore").asBoolean()) {
                 assertThat(page.get("nextCursor").isNull()).isTrue();
+                lastPage = page;
                 break;
             }
             assertThat(page.get("nextCursor").asText()).isNotBlank();
             cursor = page.get("nextCursor").asText();
-            if (pages > 100) break;
+            assertThat(pages).isLessThan(100);
         }
-        assertThat(seen.size()).isEqualTo((int) total);
+        assertThat(seen).hasSize(total);
+        assertThat(pages).isEqualTo((total + size - 1) / size);
 
-        // last page already has hasMore false; request following page using cursor from last item -> empty
-        // Build cursor from the smallest (last) item key by re-fetching last page is complex;
-        // instead verify an obviously-beyond cursor yields empty page.
-        String beyond = Base64.getUrlEncoder().withoutPadding()
-                .encodeToString((Instant.EPOCH.toString() + "|0").getBytes(StandardCharsets.UTF_8));
-        JsonNode empty = getJson("/api/v1/items?size=" + size + "&cursor=" + beyond);
-        assertThat(empty.get("items").size()).isEqualTo(0);
+        JsonNode lastItem = lastPage.get("items").get(lastPage.get("items").size() - 1);
+        String afterLast = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                (lastItem.get("fetchedAt").asText() + "|" + lastItem.get("id").asLong())
+                        .getBytes(StandardCharsets.UTF_8));
+        JsonNode empty = getJson("/api/v1/items?size=" + size + "&cursor=" + afterLast);
+        assertThat(empty.get("items")).isEmpty();
         assertThat(empty.get("hasMore").asBoolean()).isFalse();
+        assertThat(empty.get("nextCursor").isNull()).isTrue();
         assertThat(empty.get("total").asLong()).isEqualTo(total);
+    }
+
+    @Test
+    void pagination_sizeCapAt100() throws Exception {
+        FeedSource src = sources.findAll().get(0);
+        for (int i = 0; i < 105; i++) {
+            items.save(new Item(src, "g-cap-" + i, "http://x/cap/" + i, "Cap item " + i, "summary", null,
+                    Instant.parse("2025-01-01T00:00:00Z").plusSeconds(i)));
+        }
+        JsonNode capped = getJson("/api/v1/items?size=1000");
+        assertThat(capped.get("items")).hasSize(100);
+        assertThat(capped.get("total").asLong()).isEqualTo(105);
+        assertThat(capped.get("hasMore").asBoolean()).isTrue();
     }
 
     @Test
@@ -221,49 +253,65 @@ class ItemsApiSeamTest {
         items.save(c);
 
         JsonNode def = getJson("/api/v1/items?size=100");
-        // null-published rows appear (in ingestion/fetched_at order)
         List<String> titles = new ArrayList<>();
         for (JsonNode it : def.get("items")) titles.add(it.get("title").asText());
-        assertThat(titles).contains("Null published one", "Null published two");
+        assertThat(titles).containsExactly("Dated item", "Null published two", "Null published one");
+        assertThat(def.get("total").asLong()).isEqualTo(3);
 
-        // date range excludes null published_at
         JsonNode ranged = getJson("/api/v1/items?from=2025-01-01T00:00:00Z&to=2025-12-31T23:59:59Z&size=100");
+        assertThat(ranged.get("total").asLong()).isEqualTo(1);
         List<String> rangedTitles = new ArrayList<>();
         for (JsonNode it : ranged.get("items")) rangedTitles.add(it.get("title").asText());
+        assertThat(rangedTitles).containsExactly("Dated item");
         assertThat(rangedTitles).doesNotContain("Null published one", "Null published two");
-        assertThat(rangedTitles).contains("Dated item");
+
+        JsonNode lowerBound = getJson("/api/v1/items?from=2025-01-01T00:00:00Z&size=100");
+        assertThat(lowerBound.get("total").asLong()).isEqualTo(1);
+        JsonNode upperBound = getJson("/api/v1/items?to=2025-12-31T23:59:59Z&size=100");
+        assertThat(upperBound.get("total").asLong()).isEqualTo(1);
     }
 
     @Test
     void itemDetail_existingMissingMalformed() throws Exception {
         poller.pollOnce();
         long existingId = getJson("/api/v1/items?size=1").get("items").get(0).get("id").asLong();
-        mockMvc.perform(get("/api/v1/items/" + existingId))
-                .andExpect(status().isOk());
-        mockMvc.perform(get("/api/v1/items/999999999"))
-                .andExpect(status().isNotFound())
-                .andExpect(result -> assertThat(result.getResponse().getContentType()).contains("problem+json"));
-        mockMvc.perform(get("/api/v1/items/not-a-number"))
-                .andExpect(status().isBadRequest())
-                .andExpect(result -> assertThat(result.getResponse().getContentType()).contains("problem+json"));
+        MvcResult found = mockMvc.perform(get("/api/v1/items/" + existingId))
+                .andExpect(status().isOk()).andReturn();
+        assertThat(mapper.readTree(found.getResponse().getContentAsString()).get("id").asLong())
+                .isEqualTo(existingId);
+
+        MvcResult missing = mockMvc.perform(get("/api/v1/items/999999999"))
+                .andExpect(status().isNotFound()).andReturn();
+        assertThat(missing.getResponse().getContentType()).contains("problem+json");
+        assertThat(missing.getResponse().getContentAsString()).contains("Item not found");
+        assertThat(missing.getResponse().getContentAsString()).doesNotContain("at ca.feedline");
+
+        MvcResult malformed = mockMvc.perform(get("/api/v1/items/not-a-number"))
+                .andExpect(status().isBadRequest()).andReturn();
+        assertThat(malformed.getResponse().getContentType()).contains("problem+json");
+        assertThat(malformed.getResponse().getContentAsString()).doesNotContain("at ca.feedline");
     }
 
     @Test
     void searchStaleness_guardGeneratedColumn() throws Exception {
-        FeedSource src = sources.findAll().isEmpty() ? sources.save(new FeedSource("Seam Source", "http://localhost:" + port + "/feed"))
-                : sources.findAll().get(0);
         String token = "stalenessguardtoken123";
-        Item item = new Item(src, "g-stale", "http://x/stale", "Title contains " + token, "summary", null,
-                Instant.now());
-        items.save(item);
+        String freshFeed = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <rss version="2.0"><channel><title>Fresh</title><link>http://localhost</link><description>Fresh</description>
+                <item><title>Fresh token %s</title><link>http://x/stale</link><guid>g-stale</guid>
+                <pubDate>Thu, 12 Nov 2026 21:00:42 GMT</pubDate><description>summary</description></item>
+                </channel></rss>
+                """.formatted(token);
+        feedBody.set(freshFeed);
+        poller.pollOnce();
 
         JsonNode res = getJson("/api/v1/items?q=" + token + "&size=100");
-        assertThat(res.get("items").size()).isGreaterThan(0);
-        boolean found = false;
-        for (JsonNode it : res.get("items")) {
-            if (it.get("title").asText().contains(token)) found = true;
-        }
-        assertThat(found).isTrue();
+        assertThat(res.get("total").asLong()).isEqualTo(1);
+        assertThat(res.get("items")).hasSize(1);
+        assertThat(res.get("items").get(0).get("title").asText()).contains(token);
+
+        long id = res.get("items").get(0).get("id").asLong();
+        assertThat(getJson("/api/v1/items/" + id).get("title").asText()).contains(token);
     }
 
     @Test
@@ -274,5 +322,9 @@ class ItemsApiSeamTest {
         String body = res.getResponse().getContentAsString();
         assertThat(body).contains("/api/v1/items");
         assertThat(body).contains("/api/v1/items/{id}");
+        assertThat(body).contains("Keyset pagination on (fetched_at, id)");
+        assertThat(body).contains("hasMore");
+        assertThat(body).contains("null published_at");
+        assertThat(body).contains("EXCLUDED");
     }
 }

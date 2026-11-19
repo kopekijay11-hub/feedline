@@ -8,6 +8,7 @@ import jakarta.persistence.Query;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -155,7 +156,7 @@ public class ItemQueryService {
             Instant ts = Instant.parse(parts[0]);
             long id = Long.parseLong(parts[1]);
             return new Cursor(ts, id);
-        } catch (Exception e) {
+        } catch (IllegalArgumentException | DateTimeException e) {
             throw new IllegalArgumentException("malformed cursor");
         }
     }

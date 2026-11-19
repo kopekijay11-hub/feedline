@@ -8,4 +8,12 @@ public record ItemsPage(
         long total,
         boolean hasMore
 ) {
+    public ItemsPage {
+        items = List.copyOf(items);
+    }
+
+    @Override
+    public List<ItemDto> items() {
+        return List.copyOf(items);
+    }
 }

@@ -19,10 +19,10 @@ public class StrictParameterInterceptor implements HandlerInterceptor {
                         mp.getParameterAnnotation(org.springframework.web.bind.annotation.RequestParam.class);
                 if (rp != null) {
                     String name = rp.name();
-                    if (name == null || name.isEmpty()) {
+                    if (name.isEmpty()) {
                         name = rp.value();
                     }
-                    if (name == null || name.isEmpty()) {
+                    if (name.isEmpty()) {
                         name = mp.getParameterName();
                     }
                     if (name != null) {

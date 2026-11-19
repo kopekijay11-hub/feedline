@@ -2,6 +2,7 @@ package ca.feedline;
 
 import ca.feedline.service.FeedFetchResult;
 import ca.feedline.service.FeedFetcher;
+import ca.feedline.service.ItemQueryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -33,6 +34,8 @@ class SchedulerInvokesPollerTest {
     private FeedSourceRepository feedSources;
     @MockBean
     private ItemRepository items;
+    @MockBean
+    private ItemQueryService itemQueryService;
 
     @Autowired
     private ca.feedline.service.FeedPollerService poller;
