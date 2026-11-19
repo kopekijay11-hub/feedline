@@ -2,6 +2,8 @@ package ca.feedline;
 
 import ca.feedline.config.FeedProperties.Source;
 import ca.feedline.domain.IngestSkip;
+import ca.feedline.health.SourceHealthDetail;
+import ca.feedline.health.SourceHealthService;
 import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.IngestSkipRepository;
 import ca.feedline.repository.ItemRepository;
@@ -64,6 +66,9 @@ class PerItemIngestIsolationTest {
     @Autowired
     private IngestSkipRepository skips;
 
+    @Autowired
+    private SourceHealthService health;
+
     @SpyBean
     private FeedNormalizer normalizer;
 
@@ -114,6 +119,12 @@ class PerItemIngestIsolationTest {
             assertThat(skip.getFailureClass()).isEqualTo("TITLE_TOO_LONG");
             assertThat(skip.getOccurrences()).isEqualTo(1);
         });
+        SourceHealthDetail detail = health.aggregate().sources().stream()
+                .filter(item -> "Isolation Fixture".equals(item.name()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(detail.skippedItemCount()).isEqualTo(1);
+        assertThat(detail.skippedOccurrences()).isEqualTo(1);
         ca.feedline.domain.FeedSource stored = sources.findByUrl(feedUrl()).orElseThrow();
         assertThat(stored.getEtag()).isNull();
         assertThat(stored.getLastModified()).isNull();

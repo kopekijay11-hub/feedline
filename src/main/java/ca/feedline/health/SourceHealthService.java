@@ -3,6 +3,7 @@ package ca.feedline.health;
 import ca.feedline.config.FeedProperties;
 import ca.feedline.domain.FeedSource;
 import ca.feedline.repository.FeedSourceRepository;
+import ca.feedline.repository.IngestSkipRepository;
 import ca.feedline.service.FeedPollerService;
 import org.springframework.stereotype.Service;
 
@@ -15,11 +16,14 @@ import java.util.Optional;
 public class SourceHealthService {
 
     private final FeedSourceRepository sources;
+    private final IngestSkipRepository skips;
     private final FeedPollerService poller;
     private final FeedProperties config;
 
-    public SourceHealthService(FeedSourceRepository sources, FeedPollerService poller, FeedProperties config) {
+    public SourceHealthService(FeedSourceRepository sources, IngestSkipRepository skips,
+                               FeedPollerService poller, FeedProperties config) {
         this.sources = sources;
+        this.skips = skips;
         this.poller = poller;
         this.config = config;
     }
@@ -38,6 +42,16 @@ public class SourceHealthService {
         } catch (Exception e) {
             return Duration.ofSeconds(60);
         }
+    }
+
+    public Instant lastCompletedPollCycle() {
+        return poller.getLastCompletedPollCycle();
+    }
+
+    public boolean heartbeatStale() {
+        Instant heartbeat = lastCompletedPollCycle();
+        return heartbeat == null
+                || Duration.between(heartbeat, Instant.now()).compareTo(pollInterval().multipliedBy(2)) > 0;
     }
 
     public SourceHealthDetail healthFor(FeedSource source) {
@@ -70,22 +84,22 @@ public class SourceHealthService {
                 source.getConsecutiveFailures(),
                 validatorsPresent,
                 secondsSince,
-                interval.toSeconds()
+                interval.toSeconds(),
+                skips.countBySourceId(source.getId()),
+                skips.sumOccurrencesBySourceId(source.getId())
         );
     }
 
     public SourcesHealth aggregate() {
-        Instant now = Instant.now();
         Duration interval = pollInterval();
         List<SourceHealthDetail> details = sources.findAll().stream()
                 .map(this::healthFor).toList();
-        Instant heartbeat = poller.getLastCompletedPollCycle();
-        boolean heartbeatStale = heartbeat == null
-                || Duration.between(heartbeat, now).compareTo(interval.multipliedBy(2)) > 0;
+        Instant heartbeat = lastCompletedPollCycle();
+        boolean heartbeatStale = heartbeatStale();
         boolean anyDegraded = details.stream().anyMatch(d -> "DEGRADED".equals(d.state()));
-        boolean healthy = !heartbeatStale && !anyDegraded;
-        String status = healthy ? "UP" : "DOWN";
-        return new SourcesHealth(status, heartbeat, heartbeatStale, interval.toSeconds(), details);
+        String sourcesStatus = (!heartbeatStale && !anyDegraded) ? "UP" : "DEGRADED";
+        return new SourcesHealth(sourcesStatus, sourcesStatus, heartbeat, heartbeatStale,
+                interval.toSeconds(), details);
     }
 
     public Optional<SourceHealthDetail> findById(Long id) {

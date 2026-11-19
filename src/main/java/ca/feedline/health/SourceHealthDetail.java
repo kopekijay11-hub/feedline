@@ -12,6 +12,8 @@ public record SourceHealthDetail(
         int consecutiveFailures,
         boolean validatorsPresent,
         Long secondsSinceLastSuccess,
-        long pollIntervalSeconds
+        long pollIntervalSeconds,
+        long skippedItemCount,
+        long skippedOccurrences
 ) {
 }

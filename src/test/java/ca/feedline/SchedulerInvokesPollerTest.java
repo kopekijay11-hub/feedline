@@ -25,7 +25,8 @@ import static org.mockito.Mockito.when;
 
 @SpringBootTest(properties = {
         "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration",
-        "feed.poll-delay=200"
+        "feed.poll-delay=200",
+        "management.endpoint.health.group.readiness.include=readinessState"
 })
 class SchedulerInvokesPollerTest {
 

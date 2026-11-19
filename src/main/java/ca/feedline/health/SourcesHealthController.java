@@ -1,5 +1,8 @@
 package ca.feedline.health;
 
+import org.springframework.boot.actuate.health.HealthComponent;
+import org.springframework.boot.actuate.health.HealthEndpoint;
+import org.springframework.boot.actuate.health.Status;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -16,16 +19,20 @@ import java.util.Optional;
 public class SourcesHealthController {
 
     private final SourceHealthService service;
+    private final HealthEndpoint healthEndpoint;
 
-    public SourcesHealthController(SourceHealthService service) {
+    public SourcesHealthController(SourceHealthService service, HealthEndpoint healthEndpoint) {
         this.service = service;
+        this.healthEndpoint = healthEndpoint;
     }
 
     @GetMapping
     public ResponseEntity<SourcesHealth> aggregate() {
         SourcesHealth health = service.aggregate();
-        HttpStatus status = "UP".equals(health.status()) ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
-        return ResponseEntity.status(status).body(health);
+        HealthComponent readiness = healthEndpoint.healthForPath("readiness");
+        boolean ready = readiness != null && Status.UP.equals(readiness.getStatus());
+        HttpStatus status = ready ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
+        return ResponseEntity.status(status).body(health.withStatus(ready ? "UP" : "DOWN"));
     }
 
     @GetMapping("/{sourceId}")
