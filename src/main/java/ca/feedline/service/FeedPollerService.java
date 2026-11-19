@@ -185,6 +185,7 @@ public class FeedPollerService {
 
             if (result.httpCode() == 304) {
                 log.info("Source {} not modified (304) - skipping", url);
+                source.setLastSuccessAt(Instant.now());
                 source.setLastErrorClass(null);
                 source.setConsecutiveFailures(0);
                 feedSources.save(source);

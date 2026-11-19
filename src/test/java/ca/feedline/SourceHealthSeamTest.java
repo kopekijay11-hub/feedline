@@ -65,6 +65,17 @@ class SourceHealthSeamTest {
                         try (OutputStream os = exchange.getResponseBody()) { os.write(b); }
                         return;
                     }
+                    if ("notmodified".equals(m)) {
+                        exchange.sendResponseHeaders(304, -1);
+                        return;
+                    }
+                    if ("malformed".equals(m)) {
+                        byte[] b = "<not-xml".getBytes(StandardCharsets.UTF_8);
+                        exchange.getResponseHeaders().set("Content-Type", "application/rss+xml");
+                        exchange.sendResponseHeaders(200, b.length);
+                        try (OutputStream os = exchange.getResponseBody()) { os.write(b); }
+                        return;
+                    }
                     String body = readResourceStatic("/fixtures/bbc-world-rss.xml");
                     byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
                     exchange.getResponseHeaders().set("Content-Type", "application/rss+xml; charset=utf-8");
@@ -162,6 +173,56 @@ class SourceHealthSeamTest {
                     String ct = result.getResponse().getContentType();
                     assertThat(ct).contains("problem+json");
                 });
+    }
+
+    @Test
+    void notModifiedPollReadsUpHttp() throws Exception {
+        mode.set("notmodified");
+        // First poll needs a 200 to store validators? 304 with no validators still records success.
+        poller.pollOnce();
+        Thread.sleep(50);
+        poller.pollOnce();
+        MvcResult res = mockMvc.perform(get("/api/v1/sources/health"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String json = res.getResponse().getContentAsString();
+        assertThat(json).contains("UP");
+        assertThat(json).contains("\"consecutiveFailures\":0");
+        assertThat(json).doesNotContain("HTTP_");
+    }
+
+    @Test
+    void duplicateItemsPollAdvancesLastSuccessHttp() throws Exception {
+        mode.set("ok");
+        poller.pollOnce();
+        poller.pollOnce();
+        MvcResult res = mockMvc.perform(get("/api/v1/sources/health"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String json = res.getResponse().getContentAsString();
+        assertThat(json).contains("UP");
+    }
+
+    @Test
+    void parseFailureDoesNotAdvanceLastSuccessHttp() throws Exception {
+        mode.set("malformed");
+        poller.pollOnce();
+        MvcResult res = mockMvc.perform(get("/api/v1/sources/health"))
+                .andReturn();
+        String json = res.getResponse().getContentAsString();
+        assertThat(json).contains("PARSE");
+        assertThat(json).contains("DEGRADED");
+    }
+
+    @Test
+    void fetchFailureDoesNotAdvanceLastSuccessHttp() throws Exception {
+        mode.set("fail");
+        poller.pollOnce();
+        MvcResult res = mockMvc.perform(get("/api/v1/sources/health"))
+                .andReturn();
+        String json = res.getResponse().getContentAsString();
+        assertThat(json).contains("HTTP_500");
+        assertThat(json).contains("DEGRADED");
     }
 
     @Test
