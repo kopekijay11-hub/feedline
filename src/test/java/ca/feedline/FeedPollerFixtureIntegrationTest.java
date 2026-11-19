@@ -19,6 +19,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -26,6 +31,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * Integration tests exercising the M2a feed fixtures through the poller.
@@ -45,7 +51,7 @@ class FeedPollerFixtureIntegrationTest {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
-        registry.add("feed.poll-delay", () -> "999999h");
+        registry.add("feed.poll-delay", () -> "86400000");
     }
 
     @Autowired
@@ -161,4 +167,66 @@ class FeedPollerFixtureIntegrationTest {
             throw new IllegalStateException("Failed to read fixture: " + resourcePath, e);
         }
     }
+    @Test
+    void bomPrefixedFeed_ingestsIdenticallyToClean() {
+        // Clean variant
+        serveFixture("/feed", "/fixtures/dedupe-test.xml");
+        Source cleanSource = source("/feed", "Clean Fixture");
+        int cleanSaved = assertDoesNotThrow(() -> pollerService.pollSingleSource(cleanSource));
+        List<String> cleanGuids = new ArrayList<>();
+        items.findAll().forEach(i -> cleanGuids.add(i.getGuid()));
+        items.deleteAll();
+        sources.deleteAll();
+
+        // BOM-prefixed variant served manually
+        String body = readResource("/fixtures/dedupe-test.xml");
+        String bomBody = "\uFEFF" + body;
+        server.createContext("/bom", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                byte[] bytes = bomBody.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/rss+xml; charset=utf-8");
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(bytes);
+                }
+            }
+        });
+        Source bomSource = source("/bom", "BOM Fixture");
+        int bomSaved = assertDoesNotThrow(() -> pollerService.pollSingleSource(bomSource));
+        List<String> bomGuids = new ArrayList<>();
+        items.findAll().forEach(i -> bomGuids.add(i.getGuid()));
+
+        assertEquals(cleanSaved, bomSaved, "BOM-prefixed feed must ingest same item count");
+        Set<String> cleanSet = new TreeSet<>(cleanGuids);
+        Set<String> bomSet = new TreeSet<>(bomGuids);
+        assertEquals(cleanSet, bomSet, "BOM-prefixed feed must yield same GUIDs");
+    }
+
+
+    @Test
+    void validatorsNotPersistedOnParseFailure() throws Exception {
+        java.util.concurrent.atomic.AtomicReference<String> seenIfNoneMatch = new java.util.concurrent.atomic.AtomicReference<>();
+        server.createContext("/bad", exchange -> {
+            seenIfNoneMatch.set(exchange.getRequestHeaders().getFirst("If-None-Match"));
+            String body = "<not-xml";
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/rss+xml");
+            exchange.getResponseHeaders().set("ETag", "\"abc123\"");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(bytes); }
+        });
+        Source src = source("/bad", "Bad Parse Fixture");
+
+        // First poll: fetch 200 + ETag + unparseable body -> parse fails, no validators stored
+        int saved1 = assertDoesNotThrow(() -> pollerService.pollSingleSource(src));
+        assertEquals(0, saved1);
+
+        // Second poll: request must carry NO If-None-Match
+        seenIfNoneMatch.set("UNSET");
+        int saved2 = assertDoesNotThrow(() -> pollerService.pollSingleSource(src));
+        assertEquals(0, saved2);
+        assertNull(seenIfNoneMatch.get(), "Second request must not carry If-None-Match after a failed parse");
+    }
+
 }
