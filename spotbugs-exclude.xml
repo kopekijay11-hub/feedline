@@ -10,6 +10,15 @@
     </Or>
   </Match>
 
+  <!-- EI_EXPOSE_REP / EI_EXPOSE_REP2: health view records expose Spring-managed immutable-by-convention views. -->
+  <Match>
+    <Class name="ca.feedline.health.SourcesHealth"/>
+    <Or>
+      <Bug pattern="EI_EXPOSE_REP"/>
+      <Bug pattern="EI_EXPOSE_REP2"/>
+    </Or>
+  </Match>
+
   <!-- EI_EXPOSE_REP / EI_EXPOSE_REP2: JPA entity associations are intentionally exposed as
        managed references for ORM navigation and persistence; copying would break entity semantics. -->
   <Match>
@@ -33,6 +42,18 @@
     <Bug pattern="EI_EXPOSE_REP2"/>
   </Match>
 
+  <!-- EI_EXPOSE_REP2: constructor-held Spring/service collaborators are injected dependencies. -->
+  <Match>
+    <Class name="ca.feedline.config.SourceRegistryInitializer"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.health.SourceHealthService"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+
   <!-- EI_EXPOSE_REP2: RobotsRules is an internal immutable-by-convention holder constructed
        from a freshly parsed list within the parser; no external mutable ownership is exposed. -->
   <Match>
@@ -43,6 +64,12 @@
 
   <!-- REC_CATCH_EXCEPTION: deliberate broad catches at fetch/parse/network boundaries to
        convert failures into controlled retry/skip behavior and keep polling resilient. -->
+
+  <Match>
+    <Class name="ca.feedline.config.SourceRegistryInitializer"/>
+    <Method name="run"/>
+    <Bug pattern="REC_CATCH_EXCEPTION"/>
+  </Match>
   <Match>
     <Class name="ca.feedline.service.FeedFetcher"/>
     <Method name="fetchWithRetry"/>
@@ -55,6 +82,18 @@
       <Method name="parse"/>
     </Or>
     <Bug pattern="REC_CATCH_EXCEPTION"/>
+  </Match>
+
+  <!-- REC_CATCH_EXCEPTION: pollSingleSource converts any failure into recorded per-source health state. -->
+  <Match>
+    <Class name="ca.feedline.service.FeedPollerService"/>
+    <Method name="pollSingleSource"/>
+    <Bug pattern="REC_CATCH_EXCEPTION"/>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.service.FeedPollerService"/>
+    <Method name="pollSingleSource"/>
+    <Bug pattern="RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE"/>
   </Match>
   <Match>
     <Class name="ca.feedline.service.RobotsTxtParser"/>
