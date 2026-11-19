@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import ca.feedline.repository.FeedSourceRepository;
+import ca.feedline.repository.IngestSkipRepository;
 import ca.feedline.repository.ItemRepository;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -34,6 +35,8 @@ class SchedulerInvokesPollerTest {
     private FeedSourceRepository feedSources;
     @MockBean
     private ItemRepository items;
+    @MockBean
+    private IngestSkipRepository ingestSkips;
     @MockBean
     private ItemQueryService itemQueryService;
 
