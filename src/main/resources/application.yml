@@ -58,20 +58,8 @@ feed:
     - name: The Verge
       url: https://www.theverge.com/rss/index.xml
       enabled: true
-    - name: Google News US (Google News proxy)
-      url: https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en
-      enabled: true
-    - name: Google News CA (Google News proxy)
-      url: https://news.google.com/rss?hl=en-CA&gl=CA&ceid=CA:en
-      enabled: true
-    - name: Google News World (Google News proxy)
-      url: https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en
-      enabled: true
     - name: Yahoo News Top Stories
       url: https://news.yahoo.com/rss/topstories
-      enabled: true
-    - name: CNBC Top News
-      url: https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114
       enabled: true
     - name: MarketWatch Top Stories
       url: https://feeds.content.dowjones.io/public/rss/mw_topstories
@@ -90,33 +78,6 @@ feed:
       enabled: true
     - name: Bank of Canada Press Releases
       url: https://www.bankofcanada.ca/content_type/press-releases/feed/
-      enabled: true
-    - name: "Yahoo Finance - Gold (GC=F)"
-      url: https://feeds.finance.yahoo.com/rss/2.0/headline?s=GC=F&region=US&lang=en-US
-      enabled: true
-    - name: "Yahoo Finance - Silver (SI=F)"
-      url: https://feeds.finance.yahoo.com/rss/2.0/headline?s=SI=F&region=US&lang=en-US
-      enabled: true
-    - name: "Yahoo Finance - Platinum (PL=F)"
-      url: https://feeds.finance.yahoo.com/rss/2.0/headline?s=PL=F&region=US&lang=en-US
-      enabled: true
-    - name: "Yahoo Finance - Palladium (PA=F)"
-      url: https://feeds.finance.yahoo.com/rss/2.0/headline?s=PA=F&region=US&lang=en-US
-      enabled: true
-    - name: "Yahoo Finance - Copper (HG=F)"
-      url: https://feeds.finance.yahoo.com/rss/2.0/headline?s=HG=F&region=US&lang=en-US
-      enabled: true
-    - name: "Yahoo Finance - Crude Oil (CL=F)"
-      url: https://feeds.finance.yahoo.com/rss/2.0/headline?s=CL=F&region=US&lang=en-US
-      enabled: true
-    - name: "Yahoo Finance - Natural Gas (NG=F)"
-      url: https://feeds.finance.yahoo.com/rss/2.0/headline?s=NG=F&region=US&lang=en-US
-      enabled: true
-    - name: "Yahoo Finance - S&P 500 (^GSPC)"
-      url: https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC&region=US&lang=en-US
-      enabled: true
-    - name: "Yahoo Finance - USD/CAD (CAD=X)"
-      url: https://feeds.finance.yahoo.com/rss/2.0/headline?s=CAD=X&region=US&lang=en-US
       enabled: true
 
 logging:
