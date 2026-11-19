@@ -19,6 +19,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -161,4 +165,40 @@ class FeedPollerFixtureIntegrationTest {
             throw new IllegalStateException("Failed to read fixture: " + resourcePath, e);
         }
     }
+    @Test
+    void bomPrefixedFeed_ingestsIdenticallyToClean() {
+        // Clean variant
+        serveFixture("/feed", "/fixtures/dedupe-test.xml");
+        Source cleanSource = source("/feed", "Clean Fixture");
+        int cleanSaved = assertDoesNotThrow(() -> pollerService.pollSingleSource(cleanSource));
+        List<String> cleanGuids = new ArrayList<>();
+        items.findAll().forEach(i -> cleanGuids.add(i.getGuid()));
+        items.deleteAll();
+        sources.deleteAll();
+
+        // BOM-prefixed variant served manually
+        String body = readResource("/fixtures/dedupe-test.xml");
+        String bomBody = "\uFEFF" + body;
+        server.createContext("/bom", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                byte[] bytes = bomBody.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/rss+xml; charset=utf-8");
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(bytes);
+                }
+            }
+        });
+        Source bomSource = source("/bom", "BOM Fixture");
+        int bomSaved = assertDoesNotThrow(() -> pollerService.pollSingleSource(bomSource));
+        List<String> bomGuids = new ArrayList<>();
+        items.findAll().forEach(i -> bomGuids.add(i.getGuid()));
+
+        assertEquals(cleanSaved, bomSaved, "BOM-prefixed feed must ingest same item count");
+        Set<String> cleanSet = new TreeSet<>(cleanGuids);
+        Set<String> bomSet = new TreeSet<>(bomGuids);
+        assertEquals(cleanSet, bomSet, "BOM-prefixed feed must yield same GUIDs");
+    }
+
 }

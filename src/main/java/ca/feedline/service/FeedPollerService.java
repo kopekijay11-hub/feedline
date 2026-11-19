@@ -242,6 +242,9 @@ public class FeedPollerService {
      * @return list of entries, or empty list if parsing fails
      */
     List<SyndEntry> parse(String content) {
+        if (content != null && content.startsWith("\uFEFF")) {
+            content = content.substring(1);
+        }
         try {
             SyndFeedInput input = new SyndFeedInput();
             input.setAllowDoctypes(false);
