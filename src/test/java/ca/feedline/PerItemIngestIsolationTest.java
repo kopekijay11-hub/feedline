@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -171,13 +172,14 @@ class PerItemIngestIsolationTest {
         ca.feedline.domain.FeedSource stored = sources.findByUrl(feedUrl()).orElseThrow();
         assertThat(stored.getEtag()).isEqualTo("\"clean-etag\"");
         assertThat(stored.getLastModified()).isEqualTo("Wed, 19 Nov 2025 00:00:00 GMT");
-        assertThat(stored.getLastNewItemAt()).isNotNull();
+        Instant firstNewItemAt = stored.getLastNewItemAt();
+        assertThat(firstNewItemAt).isNotNull();
 
         poller.pollSingleSource(source());
 
         assertThat(seenIfNoneMatch.get()).isEqualTo("\"clean-etag\"");
         assertThat(skips.count()).isZero();
-        assertThat(stored.getLastNewItemAt()).isNotNull();
+        assertThat(sources.findByUrl(feedUrl()).orElseThrow().getLastNewItemAt()).isEqualTo(firstNewItemAt);
     }
 
     @Test

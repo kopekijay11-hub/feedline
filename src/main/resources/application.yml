@@ -65,6 +65,7 @@ feed:
 
   # Fixed delay between polling cycles
   poll-delay: "60000"
+  content-freshness-threshold: 7d
 
   # Feed sources
   sources:

@@ -48,6 +48,8 @@ public class FeedProperties {
      */
     private String pollDelay = "60s";
 
+    private Duration contentFreshnessThreshold = Duration.ofDays(7);
+
     /**
      * Minimum interval between requests to the same origin (host).
      */
@@ -109,6 +111,14 @@ public class FeedProperties {
 
     public void setPollDelay(String pollDelay) {
         this.pollDelay = pollDelay;
+    }
+
+    public Duration getContentFreshnessThreshold() {
+        return contentFreshnessThreshold;
+    }
+
+    public void setContentFreshnessThreshold(Duration contentFreshnessThreshold) {
+        this.contentFreshnessThreshold = contentFreshnessThreshold;
     }
 
     public Duration getPerHostInterval() {

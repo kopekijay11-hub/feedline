@@ -54,6 +54,20 @@ public class SourceHealthService {
                 || Duration.between(heartbeat, Instant.now()).compareTo(pollInterval().multipliedBy(2)) > 0;
     }
 
+    public Duration contentFreshnessThreshold() {
+        Duration threshold = config.getContentFreshnessThreshold();
+        return threshold == null || threshold.isNegative() ? Duration.ofDays(7) : threshold;
+    }
+
+    public String contentFreshness(FeedSource source, Instant now) {
+        Instant lastNewItem = source.getLastNewItemAt();
+        if (lastNewItem == null) {
+            return "UNKNOWN";
+        }
+        return Duration.between(lastNewItem, now).compareTo(contentFreshnessThreshold()) > 0
+                ? "STALE" : "CURRENT";
+    }
+
     public SourceHealthDetail healthFor(FeedSource source) {
         Instant now = Instant.now();
         Duration interval = pollInterval();
@@ -84,6 +98,8 @@ public class SourceHealthService {
                 source.getConsecutiveFailures(),
                 validatorsPresent,
                 secondsSince,
+                source.getLastNewItemAt(),
+                contentFreshness(source, now),
                 interval.toSeconds(),
                 skips.countBySourceId(source.getId()),
                 skips.sumOccurrencesBySourceId(source.getId())
