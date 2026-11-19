@@ -168,3 +168,47 @@ No errors/warnings found
 ```
 
 No merges, no cleanup deletions, no `git checkout` discards, no removal of untracked files, and no historical report edits were made. One heavy process was used at a time.
+
+## Real-config addendum
+
+This addendum re-ran the packaged poller against the real `application.yml` configuration before merge. No code or configuration files changed; the only repository change is this appended section.
+
+- Fresh compose database: isolated project `feedline-real-addendum` with a brand-new volume `feedline-real-addendum_feedline_db_data`; before app start `psql \dt` returned `Did not find any relations.` and `select count(*) from pg_tables where schemaname = 'public'` returned `0`.
+- Launch: `nohup java -jar target/feedline-0.1.0-SNAPSHOT.jar > /tmp/feedline-real-addendum.log 2>&1 &`, with **no property overrides** — all 10 configured sources enabled, production `feed.user-agent-url: https://github.com/kopekijay11-hub/feedline`, default `feed.poll-delay: "60000"` (60 s), default `feed.content-freshness-threshold: 7d`.
+- Window: started `2026-11-19T23:05:27Z`, three cycles completed by `2026-11-19T23:08:01Z` (~3 minutes), graceful `SIGTERM` at `2026-11-19T23:09:01Z`.
+
+Three poll cycles (verbatim):
+
+```text
+2026-11-19T18:05:55.507-05:00  INFO 2275391 --- [feedline] [   scheduling-1] ca.feedline.service.FeedPollerService    : Poll cycle completed: 10 sources processed, 189 items saved, took 9602 ms
+2026-11-19T18:06:58.855-05:00  INFO 2275391 --- [feedline] [   scheduling-1] ca.feedline.service.FeedPollerService    : Poll cycle completed: 10 sources processed, 10 items saved, took 3346 ms
+2026-11-19T18:08:01.841-05:00  INFO 2275391 --- [feedline] [   scheduling-1] ca.feedline.service.FeedPollerService    : Poll cycle completed: 10 sources processed, 0 items saved, took 2986 ms
+```
+
+Readiness (verbatim):
+
+```text
+--- readiness ---
+{"status":"UP"}
+HTTP 200
+```
+
+Aggregate source health (verbatim):
+
+```text
+{"status":"UP","sourcesStatus":"UP","lastCompletedPollCycle":"2026-11-19T23:08:01.841638624Z","heartbeatStale":false,"pollIntervalSeconds":60,"sources":[{"id":1,"name":"BBC News World","state":"UP","lastAttemptAt":"2026-11-19T23:07:58.855853Z","lastSuccessAt":"2026-11-19T23:07:59.020292Z","lastErrorClass":null,"consecutiveFailures":0,"validatorsPresent":false,"secondsSinceLastSuccess":45,"lastNewItemAt":"2026-11-19T23:05:48.298108Z","contentFreshness":"CURRENT","pollIntervalSeconds":60,"skippedItemCount":0,"skippedOccurrences":0},{"id":3,"name":"The Verge","state":"UP","lastAttemptAt":"2026-11-19T23:07:59.178139Z","lastSuccessAt":"2026-11-19T23:07:59.349994Z","lastErrorClass":null,"consecutiveFailures":0,"validatorsPresent":true,"secondsSinceLastSuccess":44,"lastNewItemAt":"2026-11-19T23:05:49.388248Z","contentFreshness":"CURRENT","pollIntervalSeconds":60,"skippedItemCount":0,"skippedOccurrences":0},{"id":4,"name":"Yahoo News Top Stories","state":"UP","lastAttemptAt":"2026-11-19T23:07:59.353698Z","lastSuccessAt":"2026-11-19T23:07:59.888392Z","lastErrorClass":null,"consecutiveFailures":0,"validatorsPresent":false,"secondsSinceLastSuccess":44,"lastNewItemAt":"2026-11-19T23:05:50.360161Z","contentFreshness":"CURRENT","pollIntervalSeconds":60,"skippedItemCount":0,"skippedOccurrences":0},{"id":5,"name":"MarketWatch Top Stories","state":"UP","lastAttemptAt":"2026-11-19T23:07:59.962718Z","lastSuccessAt":"2026-11-19T23:08:00.325658Z","lastErrorClass":null,"consecutiveFailures":0,"validatorsPresent":true,"secondsSinceLastSuccess":43,"lastNewItemAt":"2026-11-19T23:05:50.952278Z","contentFreshness":"CURRENT","pollIntervalSeconds":60,"skippedItemCount":0,"skippedOccurrences":0},{"id":6,"name":"Bloomberg Markets","state":"UP","lastAttemptAt":"2026-11-19T23:08:00.329596Z","lastSuccessAt":"2026-11-19T23:08:00.821604Z","lastErrorClass":null,"consecutiveFailures":0,"validatorsPresent":true,"secondsSinceLastSuccess":43,"lastNewItemAt":"2026-11-19T23:05:52.082226Z","contentFreshness":"CURRENT","pollIntervalSeconds":60,"skippedItemCount":0,"skippedOccurrences":0},{"id":7,"name":"Investing.com News","state":"UP","lastAttemptAt":"2026-11-19T23:08:00.906615Z","lastSuccessAt":"2026-11-19T23:08:01.031905Z","lastErrorClass":null,"consecutiveFailures":0,"validatorsPresent":true,"secondsSinceLastSuccess":43,"lastNewItemAt":"2026-11-19T23:06:57.953648Z","contentFreshness":"CURRENT","pollIntervalSeconds":60,"skippedItemCount":0,"skippedOccurrences":0},{"id":8,"name":"FXStreet News","state":"UP","lastAttemptAt":"2026-11-19T23:08:01.035252Z","lastSuccessAt":"2026-11-19T23:08:01.159378Z","lastErrorClass":null,"consecutiveFailures":0,"validatorsPresent":true,"secondsSinceLastSuccess":42,"lastNewItemAt":"2026-11-19T23:05:53.412248Z","contentFreshness":"CURRENT","pollIntervalSeconds":60,"skippedItemCount":0,"skippedOccurrences":0},{"id":9,"name":"Federal Reserve Press Releases","state":"UP","lastAttemptAt":"2026-11-19T23:08:01.162658Z","lastSuccessAt":"2026-11-19T23:08:01.282890Z","lastErrorClass":null,"consecutiveFailures":0,"validatorsPresent":true,"secondsSinceLastSuccess":42,"lastNewItemAt":"2026-11-19T23:05:54.031421Z","contentFreshness":"CURRENT","pollIntervalSeconds":60,"skippedItemCount":0,"skippedOccurrences":0},{"id":10,"name":"Bank of Canada Press Releases","state":"UP","lastAttemptAt":"2026-11-19T23:08:01.286516Z","lastSuccessAt":"2026-11-19T23:08:01.435915Z","lastErrorClass":null,"consecutiveFailures":0,"validatorsPresent":true,"secondsSinceLastSuccess":42,"lastNewItemAt":"2026-11-19T23:05:54.678792Z","contentFreshness":"CURRENT","pollIntervalSeconds":60,"skippedItemCount":0,"skippedOccurrences":0},{"id":11,"name":"CNBC Top News","state":"UP","lastAttemptAt":"2026-11-19T23:08:01.439722Z","lastSuccessAt":"2026-11-19T23:08:01.727391Z","lastErrorClass":null,"consecutiveFailures":0,"validatorsPresent":false,"secondsSinceLastSuccess":42,"lastNewItemAt":"2026-11-19T23:05:55.263869Z","contentFreshness":"CURRENT","pollIntervalSeconds":60,"skippedItemCount":0,"skippedOccurrences":0}]}
+HTTP 200
+```
+
+Total items stored (verbatim):
+
+```text
+--- items-total-api ---
+{"total":199}
+--- items-total-db ---
+199
+```
+
+All 10 sources have a non-null `lastAttemptAt`, `state: UP`, `contentFreshness: CURRENT`, and `skippedItemCount: 0`. Items were stored in the hundreds (`total: 199`): 189 on the first cycle, 10 more on the second, none on the third, with later cycles dominated by conditional `304 Not Modified` responses. `lastNewItemAt` ranged from `2026-11-19T23:05:48.298108Z` to `2026-11-19T23:06:57.953648Z`, all well inside the 7-day threshold; no source was quiet enough in this window to show an older value. Nothing was tuned.
+
+Graceful shutdown: `SIGTERM` produced JPA/Hikari shutdown logs (`Closing JPA EntityManagerFactory for persistence unit 'default'`, `HikariPool-1 - Shutdown completed.`); the app exited in 2 s, `docker compose -p feedline-real-addendum down` was run without `-v`, and verification showed no java process, 0 running containers, 0 remaining compose networks, and no listeners on 8080/5432. The fresh volume was intentionally left in place; no deletions or historical report edits were made.
