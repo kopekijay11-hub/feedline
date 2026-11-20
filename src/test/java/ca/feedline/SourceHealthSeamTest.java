@@ -101,7 +101,8 @@ class SourceHealthSeamTest {
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("feed.poll-delay", () -> "86400000");
         registry.add("feed.content-freshness-threshold", () -> "60s");
-        registry.add("feed.scheduling.enabled", () -> "false");
+        registry.add("feed.scheduling-enabled", () -> "false");
+        registry.add("feed.ssrf-allow-loopback", () -> "true");
         registry.add("feed.sources[0].name", () -> "Seam Source");
         registry.add("feed.sources[0].url", () -> "http://localhost:" + port + "/feed");
         registry.add("feed.sources[0].enabled", () -> "true");
@@ -192,13 +193,13 @@ class SourceHealthSeamTest {
         source.setLastErrorClass(null);
         source.setConsecutiveFailures(0);
         source.setLastNewItemAt(now);
-        sources.save(source);
+        source = sources.save(source);
         SourceHealthDetail current = health.findById(source.getId()).orElseThrow();
         assertThat(current.contentFreshness()).isEqualTo("CURRENT");
         assertThat(current.state()).isEqualTo("UP");
 
         source.setLastNewItemAt(now.minusSeconds(120));
-        sources.save(source);
+        source = sources.save(source);
         SourceHealthDetail stale = health.findById(source.getId()).orElseThrow();
         assertThat(stale.contentFreshness()).isEqualTo("STALE");
         assertThat(stale.state()).isEqualTo("UP");
@@ -210,15 +211,16 @@ class SourceHealthSeamTest {
     }
 
     @Test
-    void heartbeatTest_schedulingDisabledAggregate503() throws Exception {
+    void heartbeatTest_schedulingDisabledReadinessIgnoresStaleHeartbeat() throws Exception {
         mockMvc.perform(get("/actuator/health/liveness"))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/actuator/health/readiness"))
-                .andExpect(status().isServiceUnavailable());
+                .andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/sources/health"))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.status").value("DOWN"))
-                .andExpect(jsonPath("$.sourcesStatus").value("DEGRADED"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.sourcesStatus").value("UP"))
+                .andExpect(jsonPath("$.heartbeatStale").value(false));
     }
 
     @Test

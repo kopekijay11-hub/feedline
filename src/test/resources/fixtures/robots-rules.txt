@@ -1,0 +1,9 @@
+# Robots rules fixture for longest-match and agent-selection tests.
+User-agent: BadBot
+Disallow: /private-for-badbot
+
+User-agent: *
+Disallow: /blocked
+Allow: /public/
+Disallow: /public/private/
+Sitemap: https://example.test/sitemap.xml

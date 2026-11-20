@@ -23,6 +23,7 @@ public class PollCycleHeartbeatIndicator implements HealthIndicator {
             builder.withDetail("lastCompletedPollCycle", lastCompleted);
         }
         return builder
+                .withDetail("schedulingEnabled", service.schedulingEnabled())
                 .withDetail("pollIntervalSeconds", service.pollInterval().toSeconds())
                 .build();
     }

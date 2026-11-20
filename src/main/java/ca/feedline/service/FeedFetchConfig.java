@@ -16,8 +16,15 @@ public record FeedFetchConfig(
         long maxBodyBytes,
         int maxRedirects,
         Duration perHostInterval,
-        int maxRetries
+        int maxRetries,
+        boolean allowLoopback
 ) {
+    public FeedFetchConfig(String userAgent, Duration connectTimeout, Duration readTimeout, long maxBodyBytes,
+                           int maxRedirects, Duration perHostInterval, int maxRetries) {
+        this(userAgent, connectTimeout, readTimeout, maxBodyBytes, maxRedirects,
+                perHostInterval, maxRetries, false);
+    }
+
     public FeedFetchConfig {
         // Validate inputs
         if (userAgent == null || userAgent.isBlank()) {
