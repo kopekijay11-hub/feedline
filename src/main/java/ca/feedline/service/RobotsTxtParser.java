@@ -3,16 +3,20 @@ package ca.feedline.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Minimal robots.txt parser supporting User-agent, Disallow, and Allow directives.
@@ -20,24 +24,31 @@ import java.util.Map;
  * <p>This parser implements longest-match-wins for path matching. It only supports
  * the minimal subset required for feed fetching: User-agent, Disallow, Allow.
  *
- * <p>Caching: Results are cached per origin for the JVM's life, but only on
- * successful (HTTP 200) fetches. HTTP 404 means allow-all. HTTP 5xx or
- * unreachable means treat as disallowed for that poll and do NOT cache.
+ * <p>Fail-closed policy: crawling is allowed only on HTTP 200 (when the parsed
+ * rules permit it) or HTTP 404 (no robots.txt exists). HTTP 403, 5xx, other
+ * non-200 statuses, and network/timeout errors disallow the crawl. Successful
+ * results are cached per origin for 24 hours, so 404s and rules are re-evaluated
+ * daily. Errors are never cached, allowing the next poll to retry.
  */
 public class RobotsTxtParser {
 
     private static final Logger log = LoggerFactory.getLogger(RobotsTxtParser.class);
+    private static final Duration CACHE_TTL = Duration.ofDays(1);
+    private static final int MAX_ROBOTS_BYTES = 1024 * 1024;
 
-    private final Map<String, RobotsRules> cache = new HashMap<>();
+    private final ConcurrentMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
     private final FeedFetchConfig config;
-    private final HttpClient httpClient;
+    private final FeedHttpClient httpClient;
+    private final Clock clock;
 
     public RobotsTxtParser(FeedFetchConfig config) {
+        this(config, Clock.systemUTC());
+    }
+
+    public RobotsTxtParser(FeedFetchConfig config, Clock clock) {
         this.config = config;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(config.connectTimeout())
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+        this.httpClient = new FeedHttpClient(config);
+        this.clock = clock;
     }
 
     /**
@@ -45,87 +56,76 @@ public class RobotsTxtParser {
      *
      * @param origin the origin (scheme + "://" + host)
      * @param path the path to check
-     * @return true if allowed, false if disallowed
+     * @return true if allowed, false if disallowed or robots.txt could not be read
      */
     public boolean isAllowed(String origin, String path) {
         RobotsRules rules = getRules(origin);
-        if (rules == null) {
-            // No rules available - assume allowed
-            return true;
-        }
-        return rules.isAllowed(path);
+        return rules != null && rules.isAllowed(path);
     }
 
     /**
-     * Get the robots rules for an origin, using cache if available.
+     * Get the robots rules for an origin, using a 24-hour TTL cache if available.
      *
      * @param origin the origin (scheme + "://" + host)
-     * @return the robots rules, or null if not available
+     * @return the robots rules, never {@code null}; errors yield {@link RobotsRules#DENY_ALL}
      */
     public RobotsRules getRules(String origin) {
-        // Check cache first
-        RobotsRules cached = cache.get(origin);
+        if (origin == null || origin.isBlank()) {
+            return RobotsRules.DENY_ALL;
+        }
+
+        Instant now = Instant.now(clock);
+        CacheEntry cached = cache.get(origin);
         if (cached != null) {
-            return cached;
-        }
-
-        // Fetch robots.txt
-        try {
-            String robotsUrl = origin + "/robots.txt";
-            int statusCode = fetchRobots(robotsUrl);
-
-            if (statusCode == 200) {
-                // Parse and cache
-                String content = fetchRobotsContent(robotsUrl);
-                RobotsRules rules = parse(content);
-                cache.put(origin, rules);
-                return rules;
-            } else if (statusCode == 404) {
-                // 404 means allow-all - cache this
-                RobotsRules rules = RobotsRules.ALLOW_ALL;
-                cache.put(origin, rules);
-                return rules;
-            } else {
-                // 5xx or other error - do NOT cache, treat as disallowed for this poll
-                log.warn("Failed to fetch robots.txt from {}: HTTP {}", robotsUrl, statusCode);
-                return null;
+            if (now.isBefore(cached.expiresAt())) {
+                return cached.rules();
             }
-        } catch (Exception e) {
-            // Network error - do NOT cache, treat as disallowed for this poll
-            log.warn("Error fetching robots.txt from {}: {}", origin, e.getMessage());
-            return null;
+            cache.remove(origin, cached);
         }
+
+        Outcome outcome = fetchRules(origin);
+        if (outcome.cacheable()) {
+            cache.put(origin, new CacheEntry(outcome.rules(), Instant.now(clock).plus(CACHE_TTL)));
+        }
+        return outcome.rules();
     }
 
-    private int fetchRobots(String url) {
+    private Outcome fetchRules(String origin) {
+        String robotsUrl = origin + "/robots.txt";
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+                    .uri(URI.create(robotsUrl))
                     .timeout(config.readTimeout())
                     .header("User-Agent", buildUserAgent())
+                    .GET()
                     .build();
 
-            HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-            return response.statusCode();
-        } catch (Exception e) {
-            log.debug("Failed to fetch robots.txt from {}", url, e);
-            return 0;
-        }
-    }
-
-    private String fetchRobotsContent(String url) {
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(config.readTimeout())
-                    .header("User-Agent", buildUserAgent())
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            return response.body();
-        } catch (Exception e) {
-            log.debug("Failed to fetch robots.txt content from {}", url, e);
-            return "";
+            HttpResponse<InputStream> response = httpClient.send(request);
+            try (InputStream body = response.body()) {
+                int statusCode = response.statusCode();
+                if (statusCode == 200) {
+                    if (body == null) {
+                        return Outcome.DENIED;
+                    }
+                    byte[] bytes = body.readNBytes(MAX_ROBOTS_BYTES + 1);
+                    if (bytes.length > MAX_ROBOTS_BYTES) {
+                        log.warn("robots.txt from {} exceeds {} bytes - disallowing", robotsUrl, MAX_ROBOTS_BYTES);
+                        return Outcome.DENIED;
+                    }
+                    return new Outcome(parse(new String(bytes, StandardCharsets.UTF_8)), true);
+                }
+                if (statusCode == 404) {
+                    return new Outcome(RobotsRules.ALLOW_ALL, true);
+                }
+                log.warn("robots.txt fetch from {} returned HTTP {} - disallowing", robotsUrl, statusCode);
+                return Outcome.DENIED;
+            }
+        } catch (IOException | InterruptedException | IllegalArgumentException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.warn("Unable to read robots.txt from {} - disallowing: {}", robotsUrl, e.getMessage());
+            return Outcome.DENIED;
         }
     }
 
@@ -163,7 +163,6 @@ public class RobotsTxtParser {
                     break;
                 case "disallow":
                     if (value.isEmpty()) {
-                        // Empty Disallow means allow all
                         rules.add(new Rule(currentUserAgent, "", true));
                     } else {
                         rules.add(new Rule(currentUserAgent, value, false));
@@ -187,11 +186,19 @@ public class RobotsTxtParser {
         cache.clear();
     }
 
+    private record CacheEntry(RobotsRules rules, Instant expiresAt) {
+    }
+
+    private record Outcome(RobotsRules rules, boolean cacheable) {
+        static final Outcome DENIED = new Outcome(RobotsRules.DENY_ALL, false);
+    }
+
     /**
      * Represents the rules from a robots.txt file.
      */
     public static class RobotsRules {
         static final RobotsRules ALLOW_ALL = new RobotsRules(List.of());
+        static final RobotsRules DENY_ALL = new RobotsRules(List.of(new Rule("*", "", false)));
 
         private final List<Rule> rules;
 
@@ -200,7 +207,6 @@ public class RobotsTxtParser {
         }
 
         public boolean isAllowed(String path) {
-            // Check rules for generic agent (user-agent: *)
             Rule bestMatch = null;
             for (Rule rule : rules) {
                 if ("*".equals(rule.userAgent()) && rule.matches(path)) {
@@ -214,7 +220,6 @@ public class RobotsTxtParser {
                 return bestMatch.allowed();
             }
 
-            // Default to allowed if no matching rule
             return true;
         }
     }
@@ -224,13 +229,7 @@ public class RobotsTxtParser {
      */
     private record Rule(String userAgent, String path, boolean allowed) {
         public boolean matches(String targetPath) {
-            if (path.isEmpty()) {
-                return true; // Empty path matches everything
-            }
-            if (targetPath.startsWith(path)) {
-                return true;
-            }
-            return false;
+            return path.isEmpty() || targetPath.startsWith(path);
         }
     }
 }

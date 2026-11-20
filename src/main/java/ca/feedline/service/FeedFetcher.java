@@ -8,7 +8,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Clock;
@@ -30,7 +29,7 @@ import java.util.Map;
  *   <li>Timeouts: connect 5s, read 15s (configurable)</li>
  *   <li>Body cap: maximum response body size (configurable, default 5MB)</li>
  *   <li>Retry: network errors and HTTP 5xx only, max 3 attempts, exponential backoff</li>
- *   <li>Redirects: follow at most 3, log each hop</li>
+ *   <li>Redirects: follow at most {@code feed.max-redirects} hops</li>
  *   <li>robots.txt: checked before fetching, cached per origin</li>
  * </ul>
  */
@@ -44,6 +43,7 @@ public class FeedFetcher {
             "application/rss+xml, application/xml, application/atom+xml, text/xml, */*");
 
     private final FeedFetchConfig config;
+    private final FeedHttpClient httpClient;
     private final RobotsTxtParser robotsParser;
     private final Sleeper sleeper;
     private final Clock clock;
@@ -57,6 +57,7 @@ public class FeedFetcher {
 
     public FeedFetcher(FeedFetchConfig config, RobotsTxtParser robotsParser, Sleeper sleeper, Clock clock) {
         this.config = config;
+        this.httpClient = new FeedHttpClient(config);
         this.robotsParser = robotsParser;
         this.sleeper = sleeper;
         this.clock = clock;
@@ -96,15 +97,13 @@ public class FeedFetcher {
         try {
             RobotsTxtParser.RobotsRules rules = robotsParser.getRules(origin);
             if (rules == null) {
-                // Unable to fetch robots.txt - fail safe and allow
-                log.warn("Unable to fetch robots.txt for {}, allowing by default", origin);
-                return true;
+                log.warn("Unable to fetch robots.txt for {}, disallowing", origin);
+                return false;
             }
             return rules.isAllowed(path);
         } catch (Exception e) {
             log.warn("Error checking robots.txt for {}: {}", origin, e.getMessage());
-            // Fail safe and allow
-            return true;
+            return false;
         }
     }
 
@@ -134,7 +133,6 @@ public class FeedFetcher {
 
     private FeedFetchResult fetchWithRetry(URI uri, String etag, String lastModified, int attempt) {
         try {
-            HttpClient client = createHttpClient();
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(uri)
                     .timeout(config.readTimeout())
@@ -151,7 +149,7 @@ public class FeedFetcher {
 
             HttpRequest request = requestBuilder.build();
 
-            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<InputStream> response = httpClient.send(request);
 
             int statusCode = response.statusCode();
 
@@ -187,8 +185,8 @@ public class FeedFetcher {
                 }
             }
 
-            // For 2xx and 3xx, read the body with size limit
-            if (statusCode >= 200 && statusCode < 400) {
+            // Only 2xx carries feed content; leftover 3xx means redirects were exhausted
+            if (statusCode >= 200 && statusCode < 300) {
                 String body = readBodyWithLimit(response);
                 if (body == null) {
                     // Body too large
@@ -227,13 +225,6 @@ public class FeedFetcher {
                 return FeedFetchResult.failure(0, uri.toString());
             }
         }
-    }
-
-    private HttpClient createHttpClient() {
-        return HttpClient.newBuilder()
-                .connectTimeout(config.connectTimeout())
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
     }
 
     private String buildUserAgent() {
