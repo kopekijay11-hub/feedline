@@ -50,6 +50,9 @@ public class FeedSource {
     @Column(name = "consecutive_failures", nullable = false)
     private int consecutiveFailures = 0;
 
+    @Column(name = "last_new_item_at")
+    private Instant lastNewItemAt;
+
     public FeedSource() {
     }
 
@@ -136,5 +139,13 @@ public class FeedSource {
 
     public void setConsecutiveFailures(int consecutiveFailures) {
         this.consecutiveFailures = consecutiveFailures;
+    }
+
+    public Instant getLastNewItemAt() {
+        return lastNewItemAt;
+    }
+
+    public void setLastNewItemAt(Instant lastNewItemAt) {
+        this.lastNewItemAt = lastNewItemAt;
     }
 }

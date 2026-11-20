@@ -2,6 +2,7 @@ package ca.feedline;
 
 import ca.feedline.config.SourceRegistryInitializer;
 import ca.feedline.health.SourceHealthDetail;
+import ca.feedline.health.SourceHealthService;
 import ca.feedline.health.SourcesHealth;
 import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.ItemRepository;
@@ -13,6 +14,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.actuate.health.HealthContributorRegistry;
+import org.springframework.boot.actuate.health.HealthEndpointGroup;
+import org.springframework.boot.actuate.health.HealthEndpointGroups;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
@@ -29,10 +33,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Testcontainers
@@ -94,6 +100,7 @@ class SourceHealthSeamTest {
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("feed.poll-delay", () -> "86400000");
+        registry.add("feed.content-freshness-threshold", () -> "60s");
         registry.add("feed.scheduling.enabled", () -> "false");
         registry.add("feed.sources[0].name", () -> "Seam Source");
         registry.add("feed.sources[0].url", () -> "http://localhost:" + port + "/feed");
@@ -113,7 +120,16 @@ class SourceHealthSeamTest {
     private ItemRepository items;
 
     @Autowired
+    private SourceHealthService health;
+
+    @Autowired
     private SourceRegistryInitializer initializer;
+
+    @Autowired
+    private HealthEndpointGroups healthGroups;
+
+    @Autowired
+    private HealthContributorRegistry healthContributors;
 
     private static String readResourceStatic(String path) {
         try (InputStream is = SourceHealthSeamTest.class.getResourceAsStream(path)) {
@@ -143,7 +159,9 @@ class SourceHealthSeamTest {
         mode.set("fail");
         poller.pollOnce();
         MvcResult res = mockMvc.perform(get("/api/v1/sources/health"))
-                .andExpect(status().isServiceUnavailable())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.sourcesStatus").value("DEGRADED"))
                 .andReturn();
         String json = res.getResponse().getContentAsString();
         assertThat(json).contains("DEGRADED");
@@ -159,10 +177,80 @@ class SourceHealthSeamTest {
     }
 
     @Test
+    void freshness_isInformationalAndUsesThreshold() throws Exception {
+        ca.feedline.domain.FeedSource source = sources.findAll().stream()
+                .filter(item -> "Seam Source".equals(item.getName()))
+                .findFirst()
+                .orElseThrow();
+        SourceHealthDetail unknown = health.findById(source.getId()).orElseThrow();
+        assertThat(unknown.lastNewItemAt()).isNull();
+        assertThat(unknown.contentFreshness()).isEqualTo("UNKNOWN");
+
+        Instant now = Instant.now();
+        source.setLastAttemptAt(now);
+        source.setLastSuccessAt(now);
+        source.setLastErrorClass(null);
+        source.setConsecutiveFailures(0);
+        source.setLastNewItemAt(now);
+        sources.save(source);
+        SourceHealthDetail current = health.findById(source.getId()).orElseThrow();
+        assertThat(current.contentFreshness()).isEqualTo("CURRENT");
+        assertThat(current.state()).isEqualTo("UP");
+
+        source.setLastNewItemAt(now.minusSeconds(120));
+        sources.save(source);
+        SourceHealthDetail stale = health.findById(source.getId()).orElseThrow();
+        assertThat(stale.contentFreshness()).isEqualTo("STALE");
+        assertThat(stale.state()).isEqualTo("UP");
+        mockMvc.perform(get("/api/v1/sources/health/{sourceId}", source.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastNewItemAt").exists())
+                .andExpect(jsonPath("$.contentFreshness").value("STALE"))
+                .andExpect(jsonPath("$.state").value("UP"));
+    }
+
+    @Test
     void heartbeatTest_schedulingDisabledAggregate503() throws Exception {
-        // poll-delay huge => no automatic cycle; ensure none completed
-        mockMvc.perform(get("/api/v1/sources/health"))
+        mockMvc.perform(get("/actuator/health/liveness"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/actuator/health/readiness"))
                 .andExpect(status().isServiceUnavailable());
+        mockMvc.perform(get("/api/v1/sources/health"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value("DOWN"))
+                .andExpect(jsonPath("$.sourcesStatus").value("DEGRADED"));
+    }
+
+    @Test
+    void actuatorGroups_excludeSourcesAndSplitLivenessReadiness() {
+        HealthEndpointGroup liveness = healthGroups.get("liveness");
+        assertThat(liveness.isMember("livenessState")).isTrue();
+        assertThat(liveness.isMember("db")).isFalse();
+        assertThat(liveness.isMember("pollCycleHeartbeat")).isFalse();
+        assertThat(liveness.isMember("sources")).isFalse();
+
+        HealthEndpointGroup readiness = healthGroups.get("readiness");
+        assertThat(readiness.isMember("readinessState")).isTrue();
+        assertThat(readiness.isMember("db")).isTrue();
+        assertThat(readiness.isMember("pollCycleHeartbeat")).isTrue();
+        assertThat(readiness.isMember("sources")).isFalse();
+
+        assertThat(healthContributors.getContributor("sources")).isNull();
+    }
+
+    @Test
+    void readinessAfterCompletedPollIsUp() throws Exception {
+        mode.set("ok");
+        poller.pollOnce();
+
+        mockMvc.perform(get("/actuator/health/liveness"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/sources/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.sourcesStatus").value("UP"));
     }
 
     @Test

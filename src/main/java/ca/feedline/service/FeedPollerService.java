@@ -3,9 +3,7 @@ package ca.feedline.service;
 import ca.feedline.config.FeedProperties;
 import ca.feedline.config.FeedProperties.Source;
 import ca.feedline.domain.FeedSource;
-import ca.feedline.domain.Item;
 import ca.feedline.repository.FeedSourceRepository;
-import ca.feedline.repository.ItemRepository;
 import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.io.SyndFeedInput;
@@ -13,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.io.StringReader;
 import java.time.Instant;
@@ -29,19 +26,19 @@ import java.util.Optional;
  *   <li>Check robots.txt and per-host interval</li>
  *   <li>Fetch with conditional GET (If-None-Match / If-Modified-Since)</li>
  *   <li>If 304: skip parsing and all writes; log the 304</li>
- *   <li>If 200: parse with Rome -> normalize -> save with insert-if-absent semantics</li>
- *   <li>On successful ingest: persist the new ETag/Last-Modified validators</li>
- *   <li>If parse or store fails: validators remain untouched (transaction rollback)</li>
+ *   <li>If 200: parse with Rome, then ingest each item in its own REQUIRES_NEW transaction</li>
+ *   <li>On a clean ingest: persist the new ETag/Last-Modified validators</li>
+ *   <li>If any item is skipped: validators remain untouched and the skip is recorded</li>
  * </ol>
  *
  * <p>Insert-if-absent is enforced by the unique (source_id, guid) constraint of
  * the items table: a second save of the same (source, guid) is rejected with a
  * {@link org.springframework.dao.DataIntegrityViolationException}.
  *
- * <p>The validator transaction rule (hard invariant): new ETag/Last-Modified
- * values persist ONLY in the same transaction as a successful ingest commit.
- * If a 200 fetch then fails to parse or store, the previously stored validators
- * remain untouched. A 304 must never be able to hide items that were never stored.
+ * <p>The validator rule (hard invariant): new ETag/Last-Modified values persist
+ * only after a fully clean 200 poll. If any item is skipped, the previously
+ * stored validators remain untouched. A 304 must never hide items that were
+ * never stored.
  *
  * <p>Per-host politeness: minimum interval between requests to the same origin
  * is enforced via an injectable clock and sleeper seam.
@@ -55,17 +52,20 @@ public class FeedPollerService {
     private final FeedFetcher fetcher;
     private final FeedNormalizer normalizer;
     private final FeedSourceRepository feedSources;
-    private final ItemRepository items;
+    private final ItemIngestService itemIngest;
+    private final IngestSkipRecorder skipRecorder;
 
     private volatile Instant lastCompletedPollCycle = null;
 
     public FeedPollerService(FeedProperties config, FeedFetcher fetcher, FeedNormalizer normalizer,
-                             FeedSourceRepository feedSources, ItemRepository items) {
+                             FeedSourceRepository feedSources, ItemIngestService itemIngest,
+                             IngestSkipRecorder skipRecorder) {
         this.config = config;
         this.fetcher = fetcher;
         this.normalizer = normalizer;
         this.feedSources = feedSources;
-        this.items = items;
+        this.itemIngest = itemIngest;
+        this.skipRecorder = skipRecorder;
     }
 
     /**
@@ -129,7 +129,6 @@ public class FeedPollerService {
      * @param sourceConfig the configured source
      * @return number of items saved, or 0 if nothing was fetched/parsed
      */
-    @Transactional
     public int pollSingleSource(Source sourceConfig) {
         String url = sourceConfig.getUrl();
         Instant attemptAt = Instant.now();
@@ -214,21 +213,36 @@ public class FeedPollerService {
 
             Instant fetchedAt = Instant.now();
             int saved = 0;
+            int skipped = 0;
             for (SyndEntry entry : entries) {
                 try {
-                    Item item = normalizer.normalize(entry, source, fetchedAt);
-                    if (items.findBySourceIdAndGuid(source.getId(), item.getGuid()).isEmpty()) {
-                        items.save(item);
+                    ItemIngestResult ingested = itemIngest.ingest(source, entry, fetchedAt);
+                    if (ingested.stored()) {
                         saved++;
                     }
-                } catch (Exception e) {
-                    log.error("Failed to normalize entry from {}: {}", url, e.getMessage());
+                } catch (ItemIngestFailure failure) {
+                    skipped++;
+                    skipRecorder.record(source.getId(), failure.getGuid(), failure.getFailureClass(), Instant.now());
+                    log.warn("Skipped item {} from {}: {}", failure.getGuid(), url, failure.getFailureClass());
+                } catch (RuntimeException e) {
+                    skipped++;
+                    String guid;
+                    try {
+                        guid = normalizer.guidFor(entry);
+                    } catch (RuntimeException ignored) {
+                        guid = "UNKNOWN";
+                    }
+                    skipRecorder.record(source.getId(), guid, "INGEST_ERROR", Instant.now());
+                    log.error("Skipped item {} from {}: {}", guid, url, e.getMessage());
                 }
             }
 
-            if (result.hasNewValidators()) {
+            if (result.hasNewValidators() && skipped == 0) {
                 source.setEtag(result.newEtag());
                 source.setLastModified(result.newLastModified());
+            }
+            if (saved > 0) {
+                source.setLastNewItemAt(fetchedAt);
             }
 
             source.setLastSuccessAt(fetchedAt);

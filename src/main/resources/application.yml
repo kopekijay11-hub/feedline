@@ -24,6 +24,25 @@ spring:
     baseline-on-migrate: true
     validate-on-migrate: true
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,pollCycleHeartbeat
+  health:
+    sources:
+      enabled: false
+
 feed:
   # Project URL for User-Agent header: Feedline/0.1 (+<feedline.user-agent-url>)
   user-agent-url: https://github.com/kopekijay11-hub/feedline
@@ -46,6 +65,7 @@ feed:
 
   # Fixed delay between polling cycles
   poll-delay: "60000"
+  content-freshness-threshold: 7d
 
   # Feed sources
   sources:

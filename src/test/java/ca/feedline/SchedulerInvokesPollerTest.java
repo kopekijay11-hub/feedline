@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import ca.feedline.repository.FeedSourceRepository;
+import ca.feedline.repository.IngestSkipRepository;
 import ca.feedline.repository.ItemRepository;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -24,7 +25,8 @@ import static org.mockito.Mockito.when;
 
 @SpringBootTest(properties = {
         "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration",
-        "feed.poll-delay=200"
+        "feed.poll-delay=200",
+        "management.endpoint.health.group.readiness.include=readinessState"
 })
 class SchedulerInvokesPollerTest {
 
@@ -34,6 +36,8 @@ class SchedulerInvokesPollerTest {
     private FeedSourceRepository feedSources;
     @MockBean
     private ItemRepository items;
+    @MockBean
+    private IngestSkipRepository ingestSkips;
     @MockBean
     private ItemQueryService itemQueryService;
 

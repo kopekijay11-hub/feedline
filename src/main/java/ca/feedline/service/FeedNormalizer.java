@@ -41,24 +41,28 @@ public class FeedNormalizer {
     private static final String DEFAULT_PUBLISHED = "1970-01-01T00:00:00Z";
 
     public Item normalize(SyndEntry entry, FeedSource source, Instant fetchedAt) {
-        String guid = guidOf(entry);
+        String guid = guidFor(entry);
         String link = linkOf(entry);
         String title = titleOf(entry);
         String summary = summaryOf(entry);
         Instant publishedAt = publishedAtOf(entry);
 
-        // If guid is still null/blank after guidOf, we need to generate a synthetic one
-        if (guid == null || guid.isBlank()) {
-            guid = syntheticGuid(link, title, publishedAt);
-            log.debug("Entry '{}' has no guid; assigned synthetic guid: {}", title, guid);
-        }
-        
         if (link == null || link.isBlank()) {
             link = DEFAULT_LINK;
             log.debug("Entry '{}' has no link; assigned default link", title);
         }
 
         return new Item(source, guid, link, title, summary, publishedAt, fetchedAt);
+    }
+
+    public String guidFor(SyndEntry entry) {
+        String guid = guidOf(entry);
+        if (guid != null && !guid.isBlank()) {
+            return guid;
+        }
+        String synthetic = syntheticGuid(linkOf(entry), titleOf(entry), publishedAtOf(entry));
+        log.debug("Entry '{}' has no guid; assigned synthetic guid: {}", titleOf(entry), synthetic);
+        return synthetic;
     }
 
     /**
