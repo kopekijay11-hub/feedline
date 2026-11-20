@@ -59,6 +59,16 @@
     <Bug pattern="EI_EXPOSE_REP2"/>
   </Match>
   <Match>
+    <Class name="ca.feedline.service.ItemIngestService"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.service.OutboxRelayService"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+  <Match>
     <Class name="ca.feedline.service.IngestSkipRecorder"/>
     <Method name="&lt;init&gt;"/>
     <Bug pattern="EI_EXPOSE_REP2"/>
@@ -107,10 +117,7 @@
   </Match>
   <Match>
     <Class name="ca.feedline.service.RobotsTxtParser"/>
-    <Or>
-      <Method name="fetchRobots"/>
-      <Method name="fetchRobotsContent"/>
-    </Or>
+    <Method name="fetchRules"/>
     <Bug pattern="REC_CATCH_EXCEPTION"/>
   </Match>
 </FindBugsFilter>

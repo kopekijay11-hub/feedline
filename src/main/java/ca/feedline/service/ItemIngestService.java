@@ -2,9 +2,15 @@ package ca.feedline.service;
 
 import ca.feedline.domain.FeedSource;
 import ca.feedline.domain.Item;
+import ca.feedline.domain.OutboxEvent;
+import ca.feedline.dto.ItemIngestedEvent;
 import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.ItemRepository;
+import ca.feedline.repository.OutboxEventRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rometools.rome.feed.synd.SyndEntry;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -29,13 +35,24 @@ public class ItemIngestService {
     private final FeedNormalizer normalizer;
     private final ItemRepository items;
     private final FeedSourceRepository feedSources;
+    private final OutboxEventRepository outboxEvents;
+    private final ObjectMapper objectMapper;
+    private final String topic;
+    private final boolean outboxEnabled;
     private final TransactionTemplate txTemplate;
 
     public ItemIngestService(FeedNormalizer normalizer, ItemRepository items, FeedSourceRepository feedSources,
+                             OutboxEventRepository outboxEvents, ObjectMapper objectMapper,
+                             @Value("${feed.outbox.topic:feedline.items.ingested}") String topic,
+                             @Value("${feed.outbox.enabled:true}") boolean outboxEnabled,
                              PlatformTransactionManager transactionManager) {
         this.normalizer = normalizer;
         this.items = items;
         this.feedSources = feedSources;
+        this.outboxEvents = outboxEvents;
+        this.objectMapper = objectMapper;
+        this.topic = topic;
+        this.outboxEnabled = outboxEnabled;
         this.txTemplate = new TransactionTemplate(transactionManager);
         this.txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -56,6 +73,9 @@ public class ItemIngestService {
                     return new ItemIngestResult(guid, false);
                 }
                 items.saveAndFlush(item);
+                if (outboxEnabled) {
+                    outboxEvents.saveAndFlush(outboxEventFor(item));
+                }
                 return new ItemIngestResult(guid, true);
             });
         } catch (RuntimeException e) {
@@ -64,6 +84,24 @@ public class ItemIngestService {
                 return new ItemIngestResult(guid, false);
             }
             throw new ItemIngestFailure(guid, failureClass, e);
+        }
+    }
+
+    private OutboxEvent outboxEventFor(Item item) {
+        ItemIngestedEvent event = new ItemIngestedEvent(
+                item.getId(),
+                item.getSource().getId(),
+                item.getGuid(),
+                item.getTitle(),
+                item.getLink(),
+                item.getPublishedAt(),
+                item.getFetchedAt());
+        try {
+            return new OutboxEvent(item.getId(), topic,
+                    item.getSource().getId() + ":" + item.getGuid(),
+                    objectMapper.writeValueAsString(event));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Could not serialize ingested item event", e);
         }
     }
 

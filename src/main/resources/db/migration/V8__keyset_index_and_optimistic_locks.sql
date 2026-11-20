@@ -1,7 +1,4 @@
 -- V8: keyset pagination index, optimistic locking, and skip retention support.
---
--- V7 is intentionally left for the parked M3 outbox/Kafka feature branch so
--- the two migrations can coexist if that branch is merged later.
 
 CREATE INDEX IF NOT EXISTS idx_items_fetched_at_id
     ON items (fetched_at DESC, id DESC);
