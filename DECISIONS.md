@@ -29,3 +29,20 @@ The DB constraint is the authority. The precheck is an optimization and a fast p
 
 **The lesson of unique = true**
 The lesson is that an annotation on the entity is a declaration of intent, not a schema. Hibernate will generate the constraint if you let it own DDL, but we own the schema through migrations — V1 was hand-written, and hand-written DDL doesn't read your JPA annotations. So the entity said one thing and the database said another, and nothing failed, because nothing in the system ever checked that the two agreed. The test that forced the issue was the first thing that actually exercised the invariant end-to-end. Two lessons, really: (a) if the entity declares a constraint, a migration must create it, and the only reliable proof is a test that violates it and expects failure — a "constraint exists" assertion, not a hope; (b) the general form — when two sources of truth (annotation and DDL, or config and code) can disagree silently, add a test that makes them disagree loudly. The bug wasn't the missing constraint so much as the absence of anything that would have caught it. That's why V3 both adds the constraint and (per the M2a repair) the suite now has a test that would fail if it went missing again.
+
+## Service remediation
+
+**Why duplicate-key races are handled outside the transaction**
+A unique violation during `saveAndFlush` marks the JPA transaction rollback-only. Catching it inside the same `@Transactional` method and returning normally still makes commit throw `UnexpectedRollbackException`. `ItemIngestService` therefore runs each item in a `REQUIRES_NEW` `TransactionTemplate`; the duplicate exception escapes the inner transaction (which rolls back cleanly), and the non-transactional caller classifies it by SQLState `23505` and returns "not stored". The next item gets a fresh transaction.
+
+**Why the SSRF guard is fail-closed**
+Checking only the URL scheme is not enough: `http://127.0.0.1`, `http://169.254.169.254`, and IPv4-mapped IPv6 literals all point at internal targets. `UrlSafety` validates http/https plus every resolved address, rejects if any address is private/special, and applies the same check to every redirect hop. Loopback is allowed only for local stub servers through the explicit `feed.ssrf-allow-loopback` test seam.
+
+**Why readiness ignores the poll heartbeat when scheduling is disabled**
+A heartbeat proves "the scheduler ran", not "the application is ready". Tests and worker-style deployments disable `@Scheduled` and drive `pollOnce()` directly, so requiring a heartbeat made readiness permanently DOWN. The canonical flag is `feed.scheduling-enabled`; when it is false, `SourceHealthService.heartbeatStale()` returns false and readiness depends on liveness/db state instead.
+
+**Why the new migration is V8**
+`feat/m3-kafka` is parked but still owns `V7__outbox_events.sql`. Starting this remediation at V8 avoids a Flyway version collision if that branch is merged later. Flyway permits version gaps.
+
+**Why optimistic locking requires saving the returned entity**
+`@Version` on `FeedSource` turns a second save of the same stale detached instance into `StaleObjectStateException`. `FeedPollerService` now reassigns `source = feedSources.save(source)` when it needs to keep working with the entity; early-return branches still save without reassignment.

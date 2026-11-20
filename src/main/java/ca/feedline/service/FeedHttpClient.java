@@ -21,6 +21,7 @@ final class FeedHttpClient {
     private final HttpClient client;
     private final int maxRedirects;
     private final Duration readTimeout;
+    private final UrlSafety urlSafety;
 
     FeedHttpClient(FeedFetchConfig config) {
         this.client = HttpClient.newBuilder()
@@ -29,6 +30,7 @@ final class FeedHttpClient {
                 .build();
         this.maxRedirects = config.maxRedirects();
         this.readTimeout = config.readTimeout();
+        this.urlSafety = new UrlSafety(config.allowLoopback());
     }
 
     /**
@@ -40,6 +42,7 @@ final class FeedHttpClient {
     HttpResponse<InputStream> send(HttpRequest request) throws IOException, InterruptedException {
         HttpRequest current = request;
         for (int redirects = 0; ; redirects++) {
+            urlSafety.validate(current.uri());
             HttpResponse<InputStream> response = client.send(current, HttpResponse.BodyHandlers.ofInputStream());
             if (!isRedirect(response.statusCode()) || redirects >= maxRedirects) {
                 return response;
@@ -51,9 +54,11 @@ final class FeedHttpClient {
             }
 
             URI target = current.uri().resolve(location);
-            if (!isHttp(target)) {
+            try {
+                urlSafety.validate(target);
+            } catch (UrlSafety.UnsafeUrlException e) {
                 closeBody(response);
-                throw new IOException("Unsupported redirect target: " + target);
+                throw e;
             }
 
             closeBody(response);
@@ -64,11 +69,6 @@ final class FeedHttpClient {
     private static boolean isRedirect(int statusCode) {
         return statusCode == 301 || statusCode == 302 || statusCode == 303
                 || statusCode == 307 || statusCode == 308;
-    }
-
-    private static boolean isHttp(URI uri) {
-        String scheme = uri.getScheme();
-        return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
     }
 
     private HttpRequest withUri(HttpRequest request, URI target) {

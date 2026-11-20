@@ -2,6 +2,7 @@ package ca.feedline;
 
 import ca.feedline.config.FeedProperties.Source;
 import ca.feedline.domain.IngestSkip;
+import ca.feedline.domain.IngestSkipId;
 import ca.feedline.health.SourceHealthDetail;
 import ca.feedline.health.SourceHealthService;
 import ca.feedline.repository.FeedSourceRepository;
@@ -28,14 +29,17 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doThrow;
 
 @Testcontainers
 @SpringBootTest
@@ -53,7 +57,8 @@ class PerItemIngestIsolationTest {
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("feed.poll-delay", () -> "86400000");
-        registry.add("feed.scheduling.enabled", () -> "false");
+        registry.add("feed.scheduling-enabled", () -> "false");
+        registry.add("feed.ssrf-allow-loopback", () -> "true");
     }
 
     @Autowired
@@ -76,6 +81,9 @@ class PerItemIngestIsolationTest {
 
     @SpyBean
     private FeedNormalizer normalizer;
+
+    @SpyBean
+    private ca.feedline.service.IngestSkipRecorder skipRecorder;
 
     private HttpServer server;
     private int port;
@@ -188,6 +196,59 @@ class PerItemIngestIsolationTest {
         assertThat(seenIfNoneMatch.get()).isEqualTo("\"clean-etag\"");
         assertThat(skips.count()).isZero();
         assertThat(sources.findByUrl(feedUrl()).orElseThrow().getLastNewItemAt()).isEqualTo(firstNewItemAt);
+    }
+
+    @Test
+    void oldSkips_arePrunedByRetentionWindow() {
+        ca.feedline.domain.FeedSource source = sources.save(
+                new ca.feedline.domain.FeedSource("Retention", "http://retention.test/feed"));
+        skips.save(new IngestSkip(new IngestSkipId(source.getId(), "old-guid"),
+                "TITLE_TOO_LONG", Instant.now().minus(Duration.ofDays(60))));
+
+        skipRecorder.prune(Duration.ofDays(30));
+
+        assertThat(skips.count()).isZero();
+    }
+
+    @Test
+    void skipRecorderFailure_doesNotDiscardGoodItems() {
+        doThrow(new RuntimeException("skip store unavailable"))
+                .when(skipRecorder).record(any(), anyString(), anyString(), any());
+        etag.set("\"poison-etag\"");
+        body.set(feed(entry("good-1", "Good one"),
+                entry("poison-long", "y".repeat(1001)),
+                entry("good-2", "Good two")));
+
+        int saved = poller.pollSingleSource(source());
+
+        assertThat(saved).isEqualTo(2);
+        assertThat(items.findAll()).hasSize(2);
+        assertThat(skips.count()).isZero();
+    }
+
+    @Test
+    void clean200WithoutValidators_clearsStoredValidators() {
+        etag.set("\"stale-etag\"");
+        lastModified.set("Wed, 19 Nov 2025 00:00:00 GMT");
+        body.set(feed(entry("stale-1", "Stale one")));
+
+        assertThat(poller.pollSingleSource(source())).isEqualTo(1);
+        ca.feedline.domain.FeedSource first = sources.findByUrl(feedUrl()).orElseThrow();
+        assertThat(first.getEtag()).isEqualTo("\"stale-etag\"");
+        assertThat(first.getLastModified()).isEqualTo("Wed, 19 Nov 2025 00:00:00 GMT");
+
+        etag.set(null);
+        lastModified.set(null);
+        body.set(feed(entry("fresh-1", "Fresh one")));
+
+        assertThat(poller.pollSingleSource(source())).isEqualTo(1);
+        ca.feedline.domain.FeedSource cleared = sources.findByUrl(feedUrl()).orElseThrow();
+        assertThat(cleared.getEtag()).isNull();
+        assertThat(cleared.getLastModified()).isNull();
+        assertThat(seenIfNoneMatch.get()).isEqualTo("\"stale-etag\"");
+
+        assertThat(poller.pollSingleSource(source())).isZero();
+        assertThat(seenIfNoneMatch.get()).isNull();
     }
 
     @Test

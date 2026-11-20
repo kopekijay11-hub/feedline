@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -24,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -38,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  */
 @Testcontainers
 @SpringBootTest
+@TestPropertySource(properties = "feed.scheduling-enabled=false")
 class FeedPollerFixtureIntegrationTest {
 
     @Container
@@ -52,6 +55,7 @@ class FeedPollerFixtureIntegrationTest {
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("feed.poll-delay", () -> "86400000");
+        registry.add("feed.ssrf-allow-loopback", () -> "true");
     }
 
     @Autowired
@@ -118,6 +122,26 @@ class FeedPollerFixtureIntegrationTest {
 
         assertEquals(0, saved, "Empty feed must save zero items");
         assertEquals(0, items.count(), "Empty feed must leave no items stored");
+    }
+
+    @Test
+    void atomFeed_ingestsEntriesUsingAtomIdsAsGuids() {
+        serveFixture("/feed", "/fixtures/atom-feed.xml");
+
+        Source source = source("/feed", "Atom Fixture");
+        int saved = assertDoesNotThrow(() -> pollerService.pollSingleSource(source),
+                "Atom feed must poll without crashing");
+
+        assertEquals(2, saved, "Both Atom entries must be ingested");
+        assertEquals(2, items.count(), "Atom entries must be stored once each");
+        Set<String> guids = items.findAll().stream()
+                .map(ca.feedline.domain.Item::getGuid)
+                .collect(Collectors.toSet());
+        assertEquals(Set.of("urn:feedline:atom:1", "urn:feedline:atom:2"), guids,
+                "Atom <id> values must be used as GUIDs");
+        assertEquals(Set.of("Atom one", "Atom two"), items.findAll().stream()
+                .map(ca.feedline.domain.Item::getTitle)
+                .collect(Collectors.toSet()));
     }
 
     @Test

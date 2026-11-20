@@ -66,6 +66,17 @@ feed:
   # Maximum redirects to follow (default 3)
   max-redirects: 3
 
+  # SSRF guard: loopback targets are blocked by default. Local stub-server tests
+  # override this explicitly; production must leave it false.
+  ssrf-allow-loopback: false
+
+  # Set false for workers/tests that invoke poller.pollOnce() directly; readiness
+  # will not wait for a scheduled heartbeat in that mode.
+  scheduling-enabled: true
+
+  # How long to retain per-item ingest skip records.
+  skip-retention: 30d
+
   # Fixed delay between polling cycles
   poll-delay: "60000"
   content-freshness-threshold: 7d

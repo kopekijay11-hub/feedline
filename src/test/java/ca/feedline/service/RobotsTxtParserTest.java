@@ -8,6 +8,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -115,6 +117,26 @@ class RobotsTxtParserTest {
         assertFalse(parser.isAllowed("http://localhost:1", "/feed"));
     }
 
+    @Test
+    void fixtureRules_longestMatchWinsAndNonGenericAgentIsIgnored() throws IOException {
+        RobotsTxtParser.RobotsRules rules = parser.parse(readResource("/fixtures/robots-rules.txt"));
+
+        assertTrue(rules.isAllowed("/feed"));
+        assertFalse(rules.isAllowed("/blocked"));
+        assertTrue(rules.isAllowed("/public/feed"), "longer Allow rule wins for generic agent");
+        assertFalse(rules.isAllowed("/public/private/feed"), "longest Disallow rule wins");
+        assertTrue(rules.isAllowed("/private-for-badbot"), "BadBot-only rules must not apply to generic agent");
+    }
+
+    private String readResource(String path) throws IOException {
+        try (InputStream stream = getClass().getResourceAsStream(path)) {
+            if (stream == null) {
+                throw new IllegalArgumentException("Fixture not found: " + path);
+            }
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
     private static FeedFetchConfig config() {
         return new FeedFetchConfig(
                 "https://github.com/kopekijay11-hub/feedline",
@@ -123,7 +145,8 @@ class RobotsTxtParserTest {
                 5 * 1024 * 1024,
                 1,
                 Duration.ZERO,
-                0
+                0,
+                true
         );
     }
 

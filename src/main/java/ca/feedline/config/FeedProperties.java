@@ -65,6 +65,23 @@ public class FeedProperties {
      */
     private int maxRedirects = 3;
 
+    /**
+     * Test-only seam that permits loopback targets for local stub servers.
+     * Production configuration leaves this disabled.
+     */
+    private boolean ssrfAllowLoopback = false;
+
+    /**
+     * Whether the scheduled poll cycle is active. Readiness must not depend on
+     * a heartbeat when scheduling is deliberately disabled (tests, workers).
+     */
+    private boolean schedulingEnabled = true;
+
+    /**
+     * Retention window for ingest skip records.
+     */
+    private Duration skipRetention = Duration.ofDays(30);
+
     public List<Source> getSources() {
         return sources;
     }
@@ -143,6 +160,30 @@ public class FeedProperties {
 
     public void setMaxRedirects(int maxRedirects) {
         this.maxRedirects = maxRedirects;
+    }
+
+    public boolean isSsrfAllowLoopback() {
+        return ssrfAllowLoopback;
+    }
+
+    public void setSsrfAllowLoopback(boolean ssrfAllowLoopback) {
+        this.ssrfAllowLoopback = ssrfAllowLoopback;
+    }
+
+    public boolean isSchedulingEnabled() {
+        return schedulingEnabled;
+    }
+
+    public void setSchedulingEnabled(boolean schedulingEnabled) {
+        this.schedulingEnabled = schedulingEnabled;
+    }
+
+    public Duration getSkipRetention() {
+        return skipRetention;
+    }
+
+    public void setSkipRetention(Duration skipRetention) {
+        this.skipRetention = skipRetention;
     }
 
     /**

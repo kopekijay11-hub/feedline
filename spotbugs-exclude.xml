@@ -68,6 +68,11 @@
     <Method name="&lt;init&gt;"/>
     <Bug pattern="EI_EXPOSE_REP2"/>
   </Match>
+  <Match>
+    <Class name="ca.feedline.service.IngestSkipRecorder"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
 
   <!-- EI_EXPOSE_REP2: RobotsRules is an internal immutable-by-convention holder constructed
        from a freshly parsed list within the parser; no external mutable ownership is exposed. -->
@@ -112,10 +117,7 @@
   </Match>
   <Match>
     <Class name="ca.feedline.service.RobotsTxtParser"/>
-    <Or>
-      <Method name="fetchRobots"/>
-      <Method name="fetchRobotsContent"/>
-    </Or>
+    <Method name="fetchRules"/>
     <Bug pattern="REC_CATCH_EXCEPTION"/>
   </Match>
 </FindBugsFilter>
