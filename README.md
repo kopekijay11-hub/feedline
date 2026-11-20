@@ -52,15 +52,17 @@ flowchart LR
     R --> F["Polite fetcher<br/>(conditional GET, retries)"]
     F --> P["Rome parser + normalizer"]
     P --> I["Per-item REQUIRES_NEW ingest"]
-    I --> DB[("PostgreSQL 16<br/>Flyway V1–V6")]
+    I --> DB[("PostgreSQL 16<br/>Flyway V1–V7")]
+    I --> O[("outbox_events<br/>transactional outbox")]
+    O --> K["Kafka relay<br/>feedline.items.ingested"]
     DB --> A["/api/v1/items<br/>/api/v1/sources/health<br/>/actuator/health/*"]
 ```
 
 ## Quick start
 
-1. `docker compose up -d` — start PostgreSQL 16 (`docker-compose.yml`, image `postgres:16-alpine`); a healthcheck gates readiness.
-2. `mvn spring-boot:run` — Flyway migrates the schema on first start, the source registry is seeded, and the poller begins pulling the ten configured feeds.
-3. `docker compose logs -f postgres` — watch the database container; poller output is in the `mvn spring-boot:run` terminal.
+1. `docker compose up -d` — start PostgreSQL 16, a single-node Kafka broker in KRaft mode, and Feedline; healthchecks gate readiness.
+2. Feedline migrates the schema with Flyway, seeds the source registry, starts polling the ten configured feeds, and serves the API on `http://localhost:8080`.
+3. `docker compose logs -f feedline` — watch poller and outbox relay output; events land on `feedline.items.ingested`.
 
 No paid services, no cloud, no API keys. Everything is open source.
 

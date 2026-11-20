@@ -7,6 +7,7 @@ import ca.feedline.health.SourceHealthService;
 import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.IngestSkipRepository;
 import ca.feedline.repository.ItemRepository;
+import ca.feedline.repository.OutboxEventRepository;
 import ca.feedline.service.FeedNormalizer;
 import ca.feedline.service.FeedPollerService;
 import com.sun.net.httpserver.HttpExchange;
@@ -68,6 +69,9 @@ class PerItemIngestIsolationTest {
     private IngestSkipRepository skips;
 
     @Autowired
+    private OutboxEventRepository outboxEvents;
+
+    @Autowired
     private SourceHealthService health;
 
     @SpyBean
@@ -83,6 +87,7 @@ class PerItemIngestIsolationTest {
     @BeforeEach
     void setUp() throws IOException {
         skips.deleteAll();
+        outboxEvents.deleteAll();
         items.deleteAll();
         sources.deleteAll();
         body.set("");
@@ -100,6 +105,7 @@ class PerItemIngestIsolationTest {
     void tearDown() {
         server.stop(0);
         skips.deleteAll();
+        outboxEvents.deleteAll();
         items.deleteAll();
         sources.deleteAll();
     }
@@ -115,6 +121,7 @@ class PerItemIngestIsolationTest {
 
         assertThat(saved).isEqualTo(2);
         assertThat(items.findAll()).hasSize(2);
+        assertThat(outboxEvents.findAll()).hasSize(2);
         assertThat(skips.findAll()).singleElement().satisfies(skip -> {
             assertThat(skip.getId().getGuid()).isEqualTo("poison-long");
             assertThat(skip.getFailureClass()).isEqualTo("TITLE_TOO_LONG");
@@ -150,6 +157,7 @@ class PerItemIngestIsolationTest {
 
         assertThat(saved).isEqualTo(2);
         assertThat(items.findAll()).hasSize(2);
+        assertThat(outboxEvents.findAll()).hasSize(2);
         assertThat(skips.findAll()).singleElement().satisfies(skip -> {
             assertThat(skip.getId().getGuid()).isEqualTo("nul-poison");
             assertThat(skip.getFailureClass()).isEqualTo("NUL_BYTE");

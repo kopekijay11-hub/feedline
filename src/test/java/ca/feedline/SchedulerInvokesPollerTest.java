@@ -10,6 +10,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.IngestSkipRepository;
 import ca.feedline.repository.ItemRepository;
+import ca.feedline.repository.OutboxEventRepository;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -36,6 +37,8 @@ class SchedulerInvokesPollerTest {
     private FeedSourceRepository feedSources;
     @MockBean
     private ItemRepository items;
+    @MockBean
+    private OutboxEventRepository outboxEvents;
     @MockBean
     private IngestSkipRepository ingestSkips;
     @MockBean

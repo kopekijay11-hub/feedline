@@ -24,6 +24,9 @@ spring:
     baseline-on-migrate: true
     validate-on-migrate: true
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
 management:
   endpoints:
     web:
@@ -66,6 +69,12 @@ feed:
   # Fixed delay between polling cycles
   poll-delay: "60000"
   content-freshness-threshold: 7d
+
+  outbox:
+    enabled: true
+    topic: feedline.items.ingested
+    poll-delay: 2000
+    batch-size: 50
 
   # Feed sources
   sources:

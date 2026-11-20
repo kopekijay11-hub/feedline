@@ -58,6 +58,16 @@
     <Method name="&lt;init&gt;"/>
     <Bug pattern="EI_EXPOSE_REP2"/>
   </Match>
+  <Match>
+    <Class name="ca.feedline.service.ItemIngestService"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.service.OutboxRelayService"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
 
   <!-- EI_EXPOSE_REP2: RobotsRules is an internal immutable-by-convention holder constructed
        from a freshly parsed list within the parser; no external mutable ownership is exposed. -->
