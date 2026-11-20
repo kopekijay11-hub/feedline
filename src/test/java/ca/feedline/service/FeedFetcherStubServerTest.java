@@ -61,7 +61,8 @@ class FeedFetcherStubServerTest {
                 100, // Small body cap for testing
                 3,
                 Duration.ofMillis(100),
-                3
+                3,
+                true
         );
         sleeper = new TestSleeper();
         clock = Clock.fixed(Instant.parse("2026-01-01T12:00:00Z"), ZoneId.of("UTC"));

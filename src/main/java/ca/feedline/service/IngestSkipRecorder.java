@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 
 @Service
@@ -29,5 +30,13 @@ public class IngestSkipRecorder {
                     skips.save(existing);
                 },
                 () -> skips.save(new IngestSkip(id, failureClass, skippedAt)));
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void prune(Duration retention) {
+        if (retention == null || retention.isNegative()) {
+            return;
+        }
+        skips.deleteByLastSkippedAtBefore(Instant.now().minus(retention));
     }
 }

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <title>Feedline Atom fixture</title>
+    <link href="http://localhost/atom"/>
+    <id>urn:feedline:atom:feed</id>
+    <updated>2026-01-01T12:00:00Z</updated>
+    <entry>
+        <title>Atom one</title>
+        <link href="http://example.test/atom/1"/>
+        <id>urn:feedline:atom:1</id>
+        <updated>2026-01-01T11:00:00Z</updated>
+        <summary>First Atom entry</summary>
+    </entry>
+    <entry>
+        <title>Atom two</title>
+        <link href="http://example.test/atom/2"/>
+        <id>urn:feedline:atom:2</id>
+        <updated>2026-01-01T10:00:00Z</updated>
+        <summary>Second Atom entry</summary>
+    </entry>
+</feed>

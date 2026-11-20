@@ -4,6 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 
@@ -13,6 +14,10 @@ public class IngestSkip {
 
     @EmbeddedId
     private IngestSkipId id;
+
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
 
     @Column(name = "failure_class", nullable = false, length = 64)
     private String failureClass;

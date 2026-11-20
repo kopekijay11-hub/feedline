@@ -85,7 +85,8 @@ class ItemsApiSeamTest {
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("feed.poll-delay", () -> "86400000");
-        registry.add("feed.scheduling.enabled", () -> "false");
+        registry.add("feed.scheduling-enabled", () -> "false");
+        registry.add("feed.ssrf-allow-loopback", () -> "true");
         registry.add("feed.sources[0].name", () -> "Seam Source");
         registry.add("feed.sources[0].url", () -> "http://localhost:" + port + "/feed");
         registry.add("feed.sources[0].enabled", () -> "true");
@@ -312,6 +313,48 @@ class ItemsApiSeamTest {
 
         long id = res.get("items").get(0).get("id").asLong();
         assertThat(getJson("/api/v1/items/" + id).get("title").asText()).contains(token);
+    }
+
+    @Test
+    void malformedCursorAndDate_return400ProblemJson() throws Exception {
+        MvcResult badCursor = mockMvc.perform(get("/api/v1/items?cursor=not-a-cursor"))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        assertThat(badCursor.getResponse().getContentType()).contains("problem+json");
+        assertThat(badCursor.getResponse().getContentAsString()).contains("malformed cursor");
+
+        MvcResult badDate = mockMvc.perform(get("/api/v1/items?from=not-a-date"))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        assertThat(badDate.getResponse().getContentType()).contains("problem+json");
+        assertThat(badDate.getResponse().getContentAsString()).contains("from");
+    }
+
+    @Test
+    void invertedDateRangeAndBlankQuery_edgeCases() throws Exception {
+        FeedSource src = sources.findAll().get(0);
+        items.save(new Item(src, "g-range", "http://x/range", "Range item", "summary",
+                Instant.parse("2025-06-01T00:00:00Z"), Instant.parse("2025-06-02T00:00:00Z")));
+
+        JsonNode inverted = getJson("/api/v1/items?from=2025-12-31T00:00:00Z&to=2025-01-01T00:00:00Z&size=100");
+        assertThat(inverted.get("total").asLong()).isZero();
+        assertThat(inverted.get("items")).isEmpty();
+
+        MvcResult blankQueryResult = mockMvc.perform(get("/api/v1/items")
+                        .param("q", " ")
+                        .param("size", "100"))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode blankQuery = mapper.readTree(blankQueryResult.getResponse().getContentAsString());
+        assertThat(blankQuery.get("total").asLong()).isEqualTo(items.count());
+    }
+
+    @Test
+    void nonPositiveSize_fallsBackToDefaultPageSize() throws Exception {
+        poller.pollOnce();
+
+        assertThat(getJson("/api/v1/items?size=0").get("items")).hasSize(20);
+        assertThat(getJson("/api/v1/items?size=-5").get("items")).hasSize(20);
     }
 
     @Test

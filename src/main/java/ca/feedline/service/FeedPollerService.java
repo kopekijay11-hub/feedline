@@ -86,7 +86,10 @@ public class FeedPollerService {
     @Scheduled(fixedDelayString = "${feed.poll-delay:60s}")
     public void pollOnce() {
         long started = System.currentTimeMillis();
+        boolean cycleRan = false;
         try {
+            skipRecorder.prune(config.getSkipRetention());
+
             // Get all configured sources
             List<Source> configuredSources = config.getSources();
             if (configuredSources == null || configuredSources.isEmpty()) {
@@ -104,6 +107,7 @@ public class FeedPollerService {
                 }
 
                 try {
+                    cycleRan = true;
                     int saved = pollSingleSource(sourceConfig);
                     totalSaved += saved;
                     totalSourcesProcessed++;
@@ -118,7 +122,9 @@ public class FeedPollerService {
         } catch (Exception ex) {
             log.error("Feed poll cycle failed - continuing", ex);
         } finally {
-            lastCompletedPollCycle = Instant.now();
+            if (cycleRan) {
+                lastCompletedPollCycle = Instant.now();
+            }
             log.debug("Poll cycle took {} ms", System.currentTimeMillis() - started);
         }
     }
@@ -222,7 +228,7 @@ public class FeedPollerService {
                     }
                 } catch (ItemIngestFailure failure) {
                     skipped++;
-                    skipRecorder.record(source.getId(), failure.getGuid(), failure.getFailureClass(), Instant.now());
+                    recordSkipSafely(source.getId(), failure.getGuid(), failure.getFailureClass(), url);
                     log.warn("Skipped item {} from {}: {}", failure.getGuid(), url, failure.getFailureClass());
                 } catch (RuntimeException e) {
                     skipped++;
@@ -232,15 +238,17 @@ public class FeedPollerService {
                     } catch (RuntimeException ignored) {
                         guid = "UNKNOWN";
                     }
-                    skipRecorder.record(source.getId(), guid, "INGEST_ERROR", Instant.now());
+                    recordSkipSafely(source.getId(), guid, "INGEST_ERROR", url);
                     log.error("Skipped item {} from {}: {}", guid, url, e.getMessage());
                 }
             }
 
-            if (result.hasNewValidators() && skipped == 0) {
+            if (skipped == 0) {
                 source.setEtag(result.newEtag());
                 source.setLastModified(result.newLastModified());
+                source = feedSources.save(source);
             }
+
             if (saved > 0) {
                 source.setLastNewItemAt(fetchedAt);
             }
@@ -248,7 +256,7 @@ public class FeedPollerService {
             source.setLastSuccessAt(fetchedAt);
             source.setLastErrorClass(null);
             source.setConsecutiveFailures(0);
-            feedSources.save(source);
+            source = feedSources.save(source);
 
             log.info("Polled {} (source id {}) -> {} items saved at {}", url, source.getId(), saved, fetchedAt);
             return saved;
@@ -258,6 +266,14 @@ public class FeedPollerService {
             source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
             feedSources.save(source);
             return 0;
+        }
+    }
+
+    private void recordSkipSafely(Long sourceId, String guid, String failureClass, String url) {
+        try {
+            skipRecorder.record(sourceId, guid, failureClass, Instant.now());
+        } catch (RuntimeException e) {
+            log.error("Failed to record skip for item {} from {}: {}", guid, url, e.getMessage());
         }
     }
 

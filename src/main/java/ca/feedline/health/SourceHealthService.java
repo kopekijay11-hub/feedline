@@ -28,6 +28,10 @@ public class SourceHealthService {
         this.config = config;
     }
 
+    public boolean schedulingEnabled() {
+        return config.isSchedulingEnabled();
+    }
+
     public Duration pollInterval() {
         String raw = config.getPollDelay();
         if (raw == null || raw.isBlank()) {
@@ -49,6 +53,9 @@ public class SourceHealthService {
     }
 
     public boolean heartbeatStale() {
+        if (!config.isSchedulingEnabled()) {
+            return false;
+        }
         Instant heartbeat = lastCompletedPollCycle();
         return heartbeat == null
                 || Duration.between(heartbeat, Instant.now()).compareTo(pollInterval().multipliedBy(2)) > 0;

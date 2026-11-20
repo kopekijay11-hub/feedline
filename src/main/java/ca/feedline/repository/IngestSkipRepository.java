@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+
 public interface IngestSkipRepository extends JpaRepository<IngestSkip, IngestSkipId> {
 
     @Query("select count(s) from IngestSkip s where s.id.sourceId = :sourceId")
@@ -13,4 +15,6 @@ public interface IngestSkipRepository extends JpaRepository<IngestSkip, IngestSk
 
     @Query("select coalesce(sum(s.occurrences), 0) from IngestSkip s where s.id.sourceId = :sourceId")
     long sumOccurrencesBySourceId(@Param("sourceId") Long sourceId);
+
+    long deleteByLastSkippedAtBefore(Instant cutoff);
 }

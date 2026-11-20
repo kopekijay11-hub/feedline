@@ -29,7 +29,8 @@ public class FeedConfig {
                 feedProperties.getMaxBodyBytes(),
                 feedProperties.getMaxRedirects(),
                 feedProperties.getPerHostInterval(),
-                feedProperties.getMaxRetries()
+                feedProperties.getMaxRetries(),
+                feedProperties.isSsrfAllowLoopback()
         );
     }
 
