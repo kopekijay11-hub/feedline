@@ -19,9 +19,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for {@link FeedFetcher} using a stub server on JDK's com.sun.net.httpserver.
@@ -204,8 +201,8 @@ class FeedFetcherStubServerTest {
         String url = "http://localhost:" + port + "/large-body";
         FeedFetchResult result = fetcher.fetch(url, null, null);
 
-        // Should fail with 413 or return null content
-        assertTrue(result.httpCode() == 413 || !result.ok());
+        assertEquals(413, result.httpCode());
+        assertEquals(1, requestCount.get(), "oversized body must not be retried");
     }
 
     private void sendResponse(HttpExchange exchange, int statusCode, String body) throws IOException {

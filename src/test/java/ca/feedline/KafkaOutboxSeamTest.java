@@ -4,6 +4,7 @@ import ca.feedline.config.FeedProperties.Source;
 import ca.feedline.domain.Item;
 import ca.feedline.domain.OutboxEvent;
 import ca.feedline.repository.FeedSourceRepository;
+import ca.feedline.repository.IngestSkipRepository;
 import ca.feedline.repository.ItemRepository;
 import ca.feedline.repository.OutboxEventRepository;
 import ca.feedline.service.FeedPollerService;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.DockerClientFactory;
@@ -53,6 +55,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @Testcontainers
 @SpringBootTest
@@ -104,6 +107,9 @@ class KafkaOutboxSeamTest {
     private OutboxEventRepository outboxEvents;
 
     @Autowired
+    private IngestSkipRepository skips;
+
+    @Autowired
     private ObjectMapper mapper;
 
     private HttpServer server;
@@ -115,6 +121,7 @@ class KafkaOutboxSeamTest {
     @BeforeEach
     void setUp() throws Exception {
         outboxEvents.deleteAll();
+        skips.deleteAll();
         items.deleteAll();
         sources.deleteAll();
         body.set("");
@@ -133,6 +140,7 @@ class KafkaOutboxSeamTest {
             server.stop(0);
         }
         outboxEvents.deleteAll();
+        skips.deleteAll();
         items.deleteAll();
         sources.deleteAll();
     }
@@ -238,6 +246,60 @@ class KafkaOutboxSeamTest {
             }
             assertThat(seenGuids).containsExactlyInAnyOrder("outage-1", "outage-2");
         }
+    }
+
+    @Test
+    void poisonEventIsQuarantinedByRealKafkaAndCanBeRecovered() throws Exception {
+        String invalidTopic = "bad topic ".repeat(25);
+        OutboxEvent poison = outboxEvents.saveAndFlush(new OutboxEvent(4242L, invalidTopic, "poison-key", "{}"));
+
+        relay.publishPending();
+
+        OutboxEvent quarantined = outboxEvents.findById(poison.getId()).orElseThrow();
+        assertThat(quarantined.getPoisonedAt()).isNotNull();
+        assertThat(quarantined.getPublishedAt()).isNull();
+        assertThat(quarantined.getLastError()).isNotBlank();
+        assertThat(relay.observe().poisoned()).isGreaterThanOrEqualTo(1);
+
+        quarantined.setTopic(TOPIC);
+        outboxEvents.saveAndFlush(quarantined);
+        assertThat(relay.requeuePoisoned()).isEqualTo(1);
+        OutboxEvent recovered = outboxEvents.findById(poison.getId()).orElseThrow();
+        assertThat(recovered.getPoisonedAt()).isNull();
+        assertThat(recovered.getAttempts()).isZero();
+
+        try (KafkaConsumer<String, String> consumer = consumerAtEnd()) {
+            relay.publishPending();
+            assertThat(collect(consumer, 1)).extracting(ConsumerRecord::key).containsExactly("poison-key");
+        }
+        assertThat(outboxEvents.findById(poison.getId()).orElseThrow().getPublishedAt()).isNotNull();
+    }
+
+    @Test
+    void outboxUniqueConstraintRejectsDuplicateTopicAndEventKey() {
+        outboxEvents.saveAndFlush(new OutboxEvent(1L, TOPIC, "unique-key", "{}"));
+
+        DataIntegrityViolationException failure = assertThrows(DataIntegrityViolationException.class,
+                () -> outboxEvents.saveAndFlush(new OutboxEvent(2L, TOPIC, "unique-key", "{}")));
+
+        assertThat(failure).hasMessageContaining("uq_outbox_topic_event_key");
+        assertThat(outboxEvents.count()).isEqualTo(1);
+    }
+
+    @Test
+    void outboxUniqueViolationDuringIngestIsAFailureNotABenignDuplicate() {
+        ca.feedline.domain.FeedSource source = sources.save(
+                new ca.feedline.domain.FeedSource("Outbox Collision", feedUrl()));
+        outboxEvents.saveAndFlush(new OutboxEvent(source.getId(), TOPIC, source.getId() + ":collide-1", "{}"));
+        body.set(feed(entry("collide-1", "Collision", "https://example.test/collide-1")));
+
+        int saved = poller.pollSingleSource(source());
+
+        assertThat(saved).isZero();
+        assertThat(items.findBySourceIdAndGuid(source.getId(), "collide-1")).isEmpty();
+        assertThat(outboxEvents.findAll()).hasSize(1);
+        assertThat(skips.findAll()).singleElement()
+                .satisfies(skip -> assertThat(skip.getFailureClass()).isEqualTo("DATA_INTEGRITY"));
     }
 
     private long publishedCount() {

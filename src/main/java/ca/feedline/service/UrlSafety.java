@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -12,17 +14,35 @@ import java.util.Locale;
  * <p>Both the scheme and every resolved address are checked. Validation is
  * fail-closed: if DNS cannot be resolved, or any resolved address is private,
  * loopback, link-local, CGNAT, multicast, unspecified, or an IPv4-mapped IPv6
- * literal, the URL is rejected.
+ * literal, the URL is rejected. The validated addresses are returned so the
+ * caller can reject a DNS answer that changes before the connection is made.
  */
 final class UrlSafety {
 
-    private final boolean allowLoopback;
-
-    UrlSafety(boolean allowLoopback) {
-        this.allowLoopback = allowLoopback;
+    @FunctionalInterface
+    interface Resolver {
+        InetAddress[] resolve(String host) throws UnknownHostException;
     }
 
-    void validate(URI uri) throws UnsafeUrlException {
+    record ValidatedTarget(URI uri, List<InetAddress> addresses) {
+        ValidatedTarget(URI uri, InetAddress[] addresses) {
+            this(uri, List.copyOf(Arrays.asList(addresses)));
+        }
+    }
+
+    private final boolean allowLoopback;
+    private final Resolver resolver;
+
+    UrlSafety(boolean allowLoopback) {
+        this(allowLoopback, InetAddress::getAllByName);
+    }
+
+    UrlSafety(boolean allowLoopback, Resolver resolver) {
+        this.allowLoopback = allowLoopback;
+        this.resolver = resolver;
+    }
+
+    ValidatedTarget validate(URI uri) throws UnsafeUrlException {
         if (uri == null) {
             throw new UnsafeUrlException("URL must not be null");
         }
@@ -34,13 +54,7 @@ final class UrlSafety {
         if (host == null || host.isBlank()) {
             throw new UnsafeUrlException("URL has no host: " + uri);
         }
-        String normalized = host.toLowerCase(Locale.ROOT);
-        while (normalized.endsWith(".")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        if (normalized.startsWith("[") && normalized.endsWith("]")) {
-            normalized = normalized.substring(1, normalized.length() - 1);
-        }
+        String normalized = normalizeHost(host);
         if (("localhost".equals(normalized) || normalized.endsWith(".localhost")) && !allowLoopback) {
             throw new UnsafeUrlException("Localhost target blocked: " + host);
         }
@@ -48,20 +62,53 @@ final class UrlSafety {
             throw new UnsafeUrlException("IPv4-mapped IPv6 target blocked: " + host);
         }
 
-        InetAddress[] addresses;
-        try {
-            addresses = InetAddress.getAllByName(host);
-        } catch (UnknownHostException e) {
-            throw new UnsafeUrlException("DNS resolution failed for " + host, e);
-        }
-        if (addresses.length == 0) {
-            throw new UnsafeUrlException("DNS returned no addresses for " + host);
-        }
+        InetAddress[] addresses = resolve(host);
         for (InetAddress address : addresses) {
             if (!isSafe(address)) {
                 throw new UnsafeUrlException("Blocked target address: " + address.getHostAddress());
             }
         }
+        return new ValidatedTarget(uri, addresses);
+    }
+
+    void assertUnchanged(ValidatedTarget target) throws UnsafeUrlException {
+        String host = target.uri().getHost();
+        InetAddress[] current = resolve(host);
+        List<InetAddress> currentList = List.of(current);
+        if (currentList.size() != target.addresses().size()
+                || !target.addresses().containsAll(currentList)) {
+            throw new UnsafeUrlException("DNS answer changed for " + host + " before connect");
+        }
+        for (InetAddress address : current) {
+            if (!isSafe(address)) {
+                throw new UnsafeUrlException("Blocked target address after DNS recheck: "
+                        + address.getHostAddress());
+            }
+        }
+    }
+
+    private InetAddress[] resolve(String host) throws UnsafeUrlException {
+        InetAddress[] addresses;
+        try {
+            addresses = resolver.resolve(host);
+        } catch (UnknownHostException e) {
+            throw new UnsafeUrlException("DNS resolution failed for " + host, e);
+        }
+        if (addresses == null || addresses.length == 0) {
+            throw new UnsafeUrlException("DNS returned no addresses for " + host);
+        }
+        return addresses;
+    }
+
+    private static String normalizeHost(String host) {
+        String normalized = host.toLowerCase(Locale.ROOT);
+        while (normalized.endsWith(".")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        if (normalized.startsWith("[") && normalized.endsWith("]")) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
+        return normalized;
     }
 
     private boolean isSafe(InetAddress address) {

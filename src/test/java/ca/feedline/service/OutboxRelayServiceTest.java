@@ -47,7 +47,7 @@ class OutboxRelayServiceTest {
     void transientFailure_recordsAttemptAndExponentialBackoffWithoutStuckInFlightState() {
         OutboxEvent first = event(1L, "topic-a", "key-1");
         OutboxEvent second = event(2L, "topic-a", "key-2");
-        when(repository.findPublishable(10)).thenReturn(List.of(first, second));
+        when(repository.findPublishable(10, NOW)).thenReturn(List.of(first, second));
         CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
         failed.completeExceptionally(new TimeoutException("broker down"));
         when(kafka.send("topic-a", "key-1", "payload")).thenReturn(failed);
@@ -68,7 +68,7 @@ class OutboxRelayServiceTest {
     void permanentFailure_poisonsEventAndLetsLaterEventsPublishToStoredTopic() {
         OutboxEvent poison = event(1L, "topic-a", "bad-key");
         OutboxEvent good = event(2L, "topic-b", "good-key");
-        when(repository.findPublishable(10)).thenReturn(List.of(poison, good));
+        when(repository.findPublishable(10, NOW)).thenReturn(List.of(poison, good));
         CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
         failed.completeExceptionally(new SerializationException("bad payload"));
         when(kafka.send("topic-a", "bad-key", "payload")).thenReturn(failed);
@@ -92,7 +92,7 @@ class OutboxRelayServiceTest {
         OutboxEvent event = event(1L, "topic-a", "key-1");
         event.recordFailure("previous-1");
         event.recordFailure("previous-2");
-        when(repository.findPublishable(10)).thenReturn(List.of(event));
+        when(repository.findPublishable(10, NOW)).thenReturn(List.of(event));
         CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
         failed.completeExceptionally(new TimeoutException("still down"));
         when(kafka.send(eq("topic-a"), eq("key-1"), anyString())).thenReturn(failed);
@@ -102,6 +102,45 @@ class OutboxRelayServiceTest {
         assertThat(event.getAttempts()).isEqualTo(3);
         assertThat(event.getPoisonedAt()).isEqualTo(NOW);
         assertThat(event.getPublishedAt()).isNull();
+    }
+
+    @Test
+    void requeuePoisoned_givesQuarantinedEventAFreshRetryBudget() {
+        OutboxEvent poisoned = event(1L, "topic-a", "key-1");
+        poisoned.recordFailure("bad payload");
+        poisoned.markPoisoned(NOW.minusSeconds(30));
+        when(repository.findPoisoned(10)).thenReturn(List.of(poisoned));
+
+        int requeued = relay.requeuePoisoned();
+
+        assertThat(requeued).isEqualTo(1);
+        assertThat(poisoned.getPoisonedAt()).isNull();
+        assertThat(poisoned.getAttempts()).isZero();
+        assertThat(poisoned.getNextAttemptAt()).isEqualTo(NOW);
+        assertThat(poisoned.getLastError()).isNull();
+        assertThat(relay.requeuedCount()).isEqualTo(1);
+    }
+
+    @Test
+    void observe_reportsDuePendingPoisonedAndOldestPendingLag() {
+        when(repository.countDue(NOW)).thenReturn(2L);
+        when(repository.countPublishable()).thenReturn(3L);
+        when(repository.countPoisoned()).thenReturn(1L);
+        when(repository.oldestPendingCreatedAt()).thenReturn(NOW.minusMillis(1500));
+
+        OutboxRelayService.RelayStats stats = relay.observe();
+
+        assertThat(stats.due()).isEqualTo(2L);
+        assertThat(stats.pending()).isEqualTo(3L);
+        assertThat(stats.poisoned()).isEqualTo(1L);
+        assertThat(stats.oldestPendingLag()).isEqualTo(java.time.Duration.ofMillis(1500));
+    }
+
+    @Test
+    void observe_reportsZeroLagWhenNothingIsPending() {
+        when(repository.oldestPendingCreatedAt()).thenReturn(null);
+
+        assertThat(relay.observe().oldestPendingLag()).isEqualTo(java.time.Duration.ZERO);
     }
 
     private OutboxEvent event(long id, String topic, String key) {

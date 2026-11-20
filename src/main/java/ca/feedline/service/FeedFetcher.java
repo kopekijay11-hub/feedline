@@ -10,13 +10,19 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.Charset;
+import java.nio.charset.IllegalCharsetNameException;
 import java.nio.charset.StandardCharsets;
+import java.nio.charset.UnsupportedCharsetException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Fetches feeds with polite behavior: conditional GET, per-host intervals,
@@ -44,6 +50,9 @@ public class FeedFetcher {
 
     private static final List<String> ACCEPT = List.of(
             "application/rss+xml, application/xml, application/atom+xml, text/xml, */*");
+
+    private static final Pattern CHARSET_PATTERN = Pattern.compile("charset\\s*=\\s*\"?([a-z0-9._+-]+)\"?");
+    private static final Pattern XML_ENCODING_PATTERN = Pattern.compile("encoding\\s*=\\s*[\"']([^\"']+)[\"']");
 
     private final FeedFetchConfig config;
     private final FeedHttpClient httpClient;
@@ -130,26 +139,27 @@ public class FeedFetcher {
     }
 
     private void enforcePerHostInterval(String origin) {
+        long wait;
         synchronized (lastRequestTime) {
             Instant last = lastRequestTime.get(origin);
+            wait = 0;
             if (last != null) {
-                Instant now = clock.instant();
-                long elapsed = Duration.between(last, now).toMillis();
+                long elapsed = Duration.between(last, clock.instant()).toMillis();
                 long required = config.perHostInterval().toMillis();
-                
                 if (elapsed < required) {
-                    long wait = required - elapsed;
-                    log.debug("Waiting {}ms for per-host interval to {} ({}ms required, {}ms elapsed)",
-                            wait, origin, required, elapsed);
-                    try {
-                        sleeper.sleep(wait);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        log.warn("Interrupted while waiting for per-host interval");
-                    }
+                    wait = required - elapsed;
                 }
             }
             lastRequestTime.put(origin, clock.instant());
+        }
+        if (wait > 0) {
+            log.debug("Waiting {}ms for per-host interval to {}", wait, origin);
+            try {
+                sleeper.sleep(wait);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("Interrupted while waiting for per-host interval");
+            }
         }
     }
 
@@ -169,7 +179,7 @@ public class FeedFetcher {
             }
 
             HttpRequest request = requestBuilder.build();
-            HttpResponse<InputStream> response = httpClient.send(request);
+            HttpResponse<InputStream> response = httpClient.send(request, this::checkRobotsForHop);
             int statusCode = response.statusCode();
             boolean retryAfterSleep = false;
             FeedFetchResult result;
@@ -194,7 +204,8 @@ public class FeedFetcher {
                         result = FeedFetchResult.failure(statusCode, uri.toString());
                     }
                 } else if (statusCode >= 200 && statusCode < 300) {
-                    String bodyText = readBodyWithLimit(body);
+                    String bodyText = readBodyWithLimit(body,
+                            response.headers().firstValue("Content-Type").orElse(null));
                     if (bodyText == null) {
                         log.warn("Feed {} body exceeds maximum size of {} bytes", uri, config.maxBodyBytes());
                         result = FeedFetchResult.failure(413, uri.toString());
@@ -224,6 +235,9 @@ public class FeedFetcher {
             }
             return result;
 
+        } catch (RobotsDisallowedException e) {
+            log.info("Feed {} disallowed by robots.txt during fetch", uri);
+            return FeedFetchResult.robotsDisallowed(uri.toString());
         } catch (UrlSafety.UnsafeUrlException e) {
             log.warn("Unsafe URL while fetching {}: {}", uri, e.getMessage());
             return FeedFetchResult.failure(0, uri.toString());
@@ -255,7 +269,7 @@ public class FeedFetcher {
         return 100L * (1L << attempt);
     }
 
-    private String readBodyWithLimit(InputStream body) {
+    private String readBodyWithLimit(InputStream body, String contentType) {
         if (body == null) {
             return "";
         }
@@ -273,9 +287,40 @@ public class FeedFetcher {
                 }
                 output.write(buffer, 0, read);
             }
-            return output.toString(StandardCharsets.UTF_8);
+            byte[] bytes = output.toByteArray();
+            return new String(bytes, charsetOf(contentType, bytes));
         } catch (IOException e) {
             log.error("Error reading response body: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static Charset charsetOf(String contentType, byte[] bytes) {
+        if (contentType != null) {
+            Matcher matcher = CHARSET_PATTERN.matcher(contentType.toLowerCase(Locale.ROOT));
+            if (matcher.find()) {
+                Charset charset = safeCharset(matcher.group(1));
+                if (charset != null) {
+                    return charset;
+                }
+            }
+        }
+        String head = new String(bytes, 0, Math.min(bytes.length, 256), StandardCharsets.ISO_8859_1);
+        Matcher matcher = XML_ENCODING_PATTERN.matcher(head);
+        if (matcher.find()) {
+            Charset charset = safeCharset(matcher.group(1));
+            if (charset != null) {
+                return charset;
+            }
+        }
+        return StandardCharsets.UTF_8;
+    }
+
+    private static Charset safeCharset(String name) {
+        try {
+            return Charset.forName(name);
+        } catch (IllegalCharsetNameException | UnsupportedCharsetException e) {
+            log.warn("Ignoring unsupported response charset {}: {}", name, e.getMessage());
             return null;
         }
     }
@@ -300,6 +345,14 @@ public class FeedFetcher {
         }
     }
 
+    private void checkRobotsForHop(URI uri) throws IOException {
+        String origin = FeedFetchConfig.originOf(uri);
+        String path = uri.getPath() == null || uri.getPath().isEmpty() ? "/" : uri.getPath();
+        if (origin == null || !checkRobotsAllowed(origin, path)) {
+            throw new RobotsDisallowedException(uri.toString());
+        }
+    }
+
     /**
      * Clear the per-host interval tracking (useful for testing).
      */
@@ -312,5 +365,13 @@ public class FeedFetcher {
      */
     RobotsTxtParser getRobotsParser() {
         return robotsParser;
+    }
+
+    private static final class RobotsDisallowedException extends IOException {
+        private static final long serialVersionUID = 1L;
+
+        RobotsDisallowedException(String uri) {
+            super("robots.txt disallowed " + uri);
+        }
     }
 }

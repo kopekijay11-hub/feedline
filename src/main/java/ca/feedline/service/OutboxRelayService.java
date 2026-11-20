@@ -18,9 +18,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 @ConditionalOnProperty(name = "feed.outbox.enabled", havingValue = "true", matchIfMissing = true)
@@ -36,6 +38,9 @@ public class OutboxRelayService {
     private final long maxBackoffMs;
     private final long sendTimeoutMs;
     private final Clock clock;
+    private final AtomicLong publishedCount = new AtomicLong();
+    private final AtomicLong failureCount = new AtomicLong();
+    private final AtomicLong requeuedCount = new AtomicLong();
 
     public OutboxRelayService(OutboxEventRepository outboxEvents, KafkaTemplate<String, String> kafka,
                               @Value("${feed.outbox.batch-size:50}") int batchSize,
@@ -57,17 +62,19 @@ public class OutboxRelayService {
     @Scheduled(fixedDelayString = "${feed.outbox.poll-delay:2000}")
     @Transactional
     public void publishPending() {
-        List<OutboxEvent> pending = outboxEvents.findPublishable(batchSize);
+        List<OutboxEvent> pending = outboxEvents.findPublishable(batchSize, clock.instant());
         for (OutboxEvent event : pending) {
             try {
                 kafka.send(event.getTopic(), event.getEventKey(), event.getPayload())
                         .get(sendTimeoutMs, TimeUnit.MILLISECONDS);
                 event.markPublished(clock.instant());
+                publishedCount.incrementAndGet();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.warn("Outbox relay interrupted before publishing event {}; batch stopped", event.getId());
                 return;
             } catch (Exception e) {
+                failureCount.incrementAndGet();
                 recordFailure(event, e);
                 if (event.isPoisoned()) {
                     log.warn("Outbox event {} quarantined after permanent publish failure: {}",
@@ -80,13 +87,47 @@ public class OutboxRelayService {
         }
     }
 
+    @Transactional
+    public int requeuePoisoned() {
+        List<OutboxEvent> poisoned = outboxEvents.findPoisoned(batchSize);
+        for (OutboxEvent event : poisoned) {
+            event.requeueForRetry(clock.instant());
+            requeuedCount.incrementAndGet();
+            log.info("Outbox event {} requeued from poison quarantine", event.getId());
+        }
+        return poisoned.size();
+    }
+
+    public RelayStats observe() {
+        Instant now = clock.instant();
+        Instant oldest = outboxEvents.oldestPendingCreatedAt();
+        return new RelayStats(
+                outboxEvents.countDue(now),
+                outboxEvents.countPublishable(),
+                outboxEvents.countPoisoned(),
+                oldest == null ? Duration.ZERO : Duration.between(oldest, now));
+    }
+
+    public long publishedCount() {
+        return publishedCount.get();
+    }
+
+    public long failureCount() {
+        return failureCount.get();
+    }
+
+    public long requeuedCount() {
+        return requeuedCount.get();
+    }
+
     private void recordFailure(OutboxEvent event, Exception failure) {
+        Instant failedAt = clock.instant();
         event.recordFailure(rootMessage(failure));
         if (isPermanent(failure) || event.getAttempts() >= maxAttempts) {
-            event.markPoisoned(clock.instant());
+            event.markPoisoned(failedAt);
             return;
         }
-        event.scheduleRetry(clock.instant().plusMillis(backoffFor(event.getAttempts())));
+        event.scheduleRetry(failedAt.plusMillis(backoffFor(event.getAttempts())));
     }
 
     private long backoffFor(int attempts) {
@@ -121,5 +162,8 @@ public class OutboxRelayService {
         }
         String message = cursor.getMessage();
         return message == null || message.isBlank() ? cursor.getClass().getName() : message;
+    }
+
+    public record RelayStats(long due, long pending, long poisoned, Duration oldestPendingLag) {
     }
 }

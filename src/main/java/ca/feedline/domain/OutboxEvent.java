@@ -129,6 +129,10 @@ public class OutboxEvent {
         return poisonedAt != null;
     }
 
+    public boolean isPublished() {
+        return publishedAt != null;
+    }
+
     public void markPublished(Instant at) {
         this.publishedAt = at;
         this.lastError = null;
@@ -146,5 +150,13 @@ public class OutboxEvent {
 
     public void markPoisoned(Instant at) {
         this.poisonedAt = at;
+    }
+
+    public void requeueForRetry(Instant at) {
+        this.poisonedAt = null;
+        this.publishedAt = null;
+        this.attempts = 0;
+        this.nextAttemptAt = at;
+        this.lastError = null;
     }
 }

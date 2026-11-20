@@ -24,4 +24,4 @@ jobs:
           cache: maven
 
       - name: Run full verification
-        run: mvn verify
+        run: mvn clean verify

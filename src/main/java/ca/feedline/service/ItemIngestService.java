@@ -24,6 +24,8 @@ import java.util.Locale;
 @Service
 public class ItemIngestService {
 
+    private static final String ITEM_DUPLICATE_CONSTRAINT = "uq_items_source_guid";
+
     static final String TITLE_TOO_LONG = "TITLE_TOO_LONG";
     static final String NUL_BYTE = "NUL_BYTE";
     static final String DUPLICATE = "DUPLICATE";
@@ -109,7 +111,7 @@ public class ItemIngestService {
         SqlSignature sql = firstSqlSignature(failure);
         if (sql != null) {
             if ("23505".equals(sql.sqlState())) {
-                return DUPLICATE;
+                return isItemDuplicate(sql) ? DUPLICATE : DATA_INTEGRITY;
             }
             if ("23514".equals(sql.sqlState()) && sql.constraintName() != null
                     && sql.constraintName().toLowerCase(Locale.ROOT).contains("title")) {
@@ -121,8 +123,7 @@ public class ItemIngestService {
         }
 
         String message = rootMessage(failure).toLowerCase(Locale.ROOT);
-        if (message.contains("uq_items_source_guid")
-                || (message.contains("duplicate key") && message.contains("violates unique constraint"))) {
+        if (message.contains(ITEM_DUPLICATE_CONSTRAINT)) {
             return DUPLICATE;
         }
         if (message.contains("ck_items_title_max_length")
@@ -155,6 +156,15 @@ public class ItemIngestService {
             cursor = cursor.getCause();
         }
         return null;
+    }
+
+    private static boolean isItemDuplicate(SqlSignature sql) {
+        String constraint = sql.constraintName();
+        if (constraint != null && constraint.toLowerCase(Locale.ROOT).contains(ITEM_DUPLICATE_CONSTRAINT)) {
+            return true;
+        }
+        String message = sql.message();
+        return message != null && message.toLowerCase(Locale.ROOT).contains(ITEM_DUPLICATE_CONSTRAINT);
     }
 
     private static boolean containsNulByte(String message) {

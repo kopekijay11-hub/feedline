@@ -30,8 +30,8 @@ spring:
       acks: all
       properties:
         enable.idempotence: true
-        delivery.timeout.ms: 30000
-        request.timeout.ms: 5000
+        delivery.timeout.ms: ${feed.outbox.send-timeout-ms:5000}
+        request.timeout.ms: 2000
         retries: 10
 
 management:

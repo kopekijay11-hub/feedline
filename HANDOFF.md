@@ -1,37 +1,45 @@
 # Feedline — Handoff
 
 ## Current branch
-- Active branch: `feat/m3-kafka`.
-- Verified HEAD: `b233547` (`Merge branch 'main' into feat/m3-kafka`); the M3 hardening below is uncommitted in the working tree because no commit was requested.
-- Merge target: `main`. `main` at the merge point (`26956d0`) owns `V8__keyset_index_and_optimistic_locks.sql`; this branch owns `V9__outbox_events.sql`.
+- Active branch: `main`; M3 is merged (`f598f1f` — `Merge branch 'feat/m3-kafka'`).
+- Base HEAD: `f598f1f`. Post-M3 polish is currently uncommitted in the working tree and is green under `mvn clean verify`.
+- Migration state: `V8__keyset_index_and_optimistic_locks.sql` then `V9__outbox_events.sql` ship on `main`; there is no `V7` migration.
 
 ## M3 hardening
 - Renamed the outbox migration from `V7` to `V9`. It now runs after `V8` on databases that already applied `V8`, which is required with `validate-on-migrate: true` and the default `out-of-order: false`.
 - `V9` creates `outbox_events` with retry metadata (`attempts`, `next_attempt_at`, `last_error`, `poisoned_at`) and a unique `(topic, event_key)` constraint.
-- `OutboxRelayService` publishes the stored event topic (not just the configured default), locks rows with `FOR UPDATE SKIP LOCKED`, records bounded exponential backoff on transient failures, and quarantines permanent failures or retry exhaustion as poison events. It stops the batch on the first transient failure so one outage cannot stall all 50 rows behind 5-second timeouts, but it continues past poison rows.
-- There is no persisted "in-flight" state. A crash rolls back the relay transaction, releases row locks, and leaves the row publishable after its backoff; another instance can pick it up. Delivery is at-least-once, with an idempotent producer (`acks=all`, `enable.idempotence=true`, retries) and deterministic Kafka key `sourceId:guid` for downstream dedupe.
-- `ItemIngestService` keeps per-item `PROPAGATION_REQUIRES_NEW`; the item and outbox row commit atomically (`saveAndFlush` on both). Duplicates are skipped by precheck and then by the `uq_items_source_guid` constraint, with SQLState `23505` classified outside the inner transaction. Skipped/poison items produce no outbox row. When `feed.outbox.enabled=false`, neither relay nor emission is active.
+- `OutboxRelayService` publishes the stored event topic (not just the configured default), locks rows with `FOR UPDATE SKIP LOCKED`, records bounded exponential backoff on transient failures, and quarantines permanent failures or retry exhaustion as poison events. It stops the batch on the first transient failure so one outage cannot stall all 50 rows behind the configured send wait, but it continues past poison rows.
+- Retry eligibility and backoff deadlines are evaluated with the same application `Clock`: the relay passes `clock.instant()` into the publishable query instead of relying on the database's `clock_timestamp()`. Poison rows can be requeued with a fresh retry budget, and the relay exposes pending/due/poison counts plus oldest-pending lag.
+- `ItemIngestService` keeps per-item `PROPAGATION_REQUIRES_NEW`; the item and outbox row commit atomically (`saveAndFlush` on both). Duplicates are skipped by precheck and then by the `uq_items_source_guid` constraint. A `23505` is benign only when the constraint context names `uq_items_source_guid`; an outbox `uq_outbox_topic_event_key` violation is a real failure, not a benign duplicate. Skipped/poison items produce no outbox row. When `feed.outbox.enabled=false`, neither relay nor emission is active.
 - Only newly ingested items emit outbox events. Historical `items` rows are **not backfilled**; see `DECISIONS.md`.
+- The producer `delivery.timeout.ms` is derived from `feed.outbox.send-timeout-ms`, so the Kafka future's own deadline matches the relay's bounded send wait.
 
 ## Test coverage and scheduler cleanup
 - `FeedPollerServiceTest` directly verifies (1) a clean `200` with no validator headers clears stale `ETag`/`Last-Modified` and keeps them cleared on the next poll, and (2) the `robotsDisallowed()` path records `ROBOTS`, increments consecutive failures, leaves validators untouched, and never ingests. This complements `RobotsTxtParserTest` and `PerItemIngestIsolationTest`.
 - `SchedulerInvokesPollerTest` now uses a `notModified` stub instead of repeated HTTP 500 failures, disables the outbox relay, and marks its context `@DirtiesContext(AFTER_CLASS)` so its background scheduler cannot leak WARN lines into later tests using the cached context.
 - `KafkaOutboxSeamTest` now sets the canonical `feed.scheduling-enabled=false` key, enables loopback only for its local stub server, asserts retry metadata during the broker outage, and verifies a repeated relay publishes no duplicate records. It has zero skipped tests and zero mocks/shortcuts.
-- `OutboxRelayServiceTest` covers transient retry/backoff, permanent poison quarantine with stored-topic publishing, and retry exhaustion.
+- `OutboxRelayServiceTest` covers transient retry/backoff, permanent poison quarantine with stored-topic publishing, retry exhaustion, requeue, and observability hooks.
+- Post-merge additions cover two-worker `FOR UPDATE SKIP LOCKED` claiming, real-Kafka poison quarantine/recovery, outbox unique-constraint handling, per-hop robots checks, and static stub-server teardown.
+
+## M3 completion / audit summary
+- **V9 migration decision:** `V7` was renamed to `V9` because `main` had already applied `V8`; with `validate-on-migrate: true` and `out-of-order: false`, a resolved-but-unapplied older version would fail Flyway validation. V1–V8 → V9 is the only supported sequence; no re-baseline, checksum repair, or out-of-order flag.
+- **No historical backfill:** V9 is pure DDL. Only newly ingested items emit events; pre-V9 rows and rows ingested with the outbox disabled never appear on the topic. Any replay must be an explicit, separately reviewed operation reusing the deterministic `sourceId:guid` key.
+- **Atomic item + outbox emission:** each item and its outbox row are written in one `REQUIRES_NEW` transaction with `saveAndFlush` on both, so neither can exist without the other. Delivery is at-least-once; the unique `(topic, event_key)` constraint and deterministic key make downstream dedupe safe.
+- **Merged baseline:** `84` tests run / `84` passed (`0` failures, `0` errors, `0` skipped) and `0` SpotBugs findings with `failOnError=true`. Post-merge hardening adds further tests; the final gate counts are recorded below and in the verification log.
 
 ## Verification
-- Final command: `mvn clean verify`
+- Canonical command: `mvn clean verify` (used locally and in CI); `clean` removes any stale `target/classes/db/migration/V7__outbox_events.sql` before Flyway resolves migrations.
 - Result: `BUILD SUCCESS`
-- Tests: `84 run, 0 failures, 0 errors, 0 skipped`
-- `KafkaOutboxSeamTest`: `2 run, 0 failures, 0 errors, 0 skipped`; no `@Disabled`, assumptions, `@MockBean`, or Mockito shortcuts.
+- Tests: `94` run / `94` passed (`0` failures, `0` errors, `0` skipped).
 - SpotBugs: `BugInstance size is 0`, `Error size is 0` (`failOnError=true`).
-- Full log: `/tmp/opencode/full-verify-m3.log`.
-- No dead-container, NPE, context-startup, or Flyway errors. WARN/ERROR lines that do appear are intentional negative-path assertions (HTTP 500/404/503, bad/oversized bodies, SSRF blocks, robots fail-closed, duplicate-key/NUL/check-constraint violations, parse failures, and the paused-Kafka outage/retry path).
+- Full log: `/tmp/opencode/post-m3-polish.log`.
+- No dead-container, NPE, context-startup, or Flyway errors. The 27 Kafka connection warnings match the prior full gate; WARN/ERROR lines that do appear are intentional negative-path assertions (HTTP 500/404/503, bad/oversized bodies, SSRF blocks, robots fail-closed, duplicate-key/NUL/check-constraint violations, parse failures, paused-Kafka outage/retry, and quarantined poison events).
 
 ## Environment notes
 - Docker must be running for Testcontainers-backed tests (PostgreSQL 16.16 and Kafka 7.8.0).
 - Local stub-server tests set `feed.ssrf-allow-loopback=true`; production default is `false`.
-- A stale `target/classes/db/migration/V7__outbox_events.sql` can survive an incremental build after the rename; run `mvn clean` (or `mvn clean verify`) so only `V9` is on the classpath.
+- A stale `target/classes/db/migration/V7__outbox_events.sql` could survive an incremental build after the rename. The canonical gate is `mvn clean verify` (CI runs the same command), which deletes `target/` first; do not publish an incremental `mvn verify` as the gate.
+- Failsafe was removed from `pom.xml`: there are no `*IT` classes, so all tests (including Testcontainers-backed ones) run under Surefire during `test`; `verify` adds SpotBugs.
 
 ## Merge readiness
-`feat/m3-kafka` is ready to merge into `main`: the full gate is green, the migration ordering hazard is resolved, outbox failure behavior is covered, and the docs record the no-backfill decision.
+M3 is merged on `main`. The full gate is green, the migration ordering hazard is resolved, outbox failure behavior is covered, and the docs record the no-backfill decision.

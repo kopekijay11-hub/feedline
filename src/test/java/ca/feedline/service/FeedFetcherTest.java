@@ -11,6 +11,7 @@ import org.mockito.Mockito;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -179,6 +180,33 @@ class FeedFetcherTest {
     }
 
     @Test
+    void redirectToRobotsDisallowedOriginIsBlockedBeforeAnyRequest() throws Exception {
+        MockWebServer blockedOrigin = new MockWebServer();
+        blockedOrigin.start();
+        try {
+            server.enqueue(new MockResponse().setResponseCode(302)
+                    .setHeader("Location", blockedOrigin.url("/blocked").toString()));
+            String blockedOriginKey = FeedFetchConfig.originOf(URI.create(blockedOrigin.url("/").toString()));
+            RobotsTxtParser perOrigin = Mockito.mock(RobotsTxtParser.class);
+            Mockito.when(perOrigin.getRules(Mockito.anyString())).thenAnswer(invocation ->
+                    blockedOriginKey.equals(invocation.getArgument(0))
+                            ? RobotsTxtParser.RobotsRules.DENY_ALL
+                            : RobotsTxtParser.RobotsRules.ALLOW_ALL);
+            FeedFetcher guarded = new FeedFetcher(config, perOrigin, sleeper, clock);
+
+            FeedFetchResult result = guarded.fetch(server.url("/start").toString(), null, null);
+
+            assertAll(
+                    () -> assertTrue(result.robotsDisallowed()),
+                    () -> assertEquals(1, server.getRequestCount()),
+                    () -> assertEquals(0, blockedOrigin.getRequestCount())
+            );
+        } finally {
+            blockedOrigin.shutdown();
+        }
+    }
+
+    @Test
     void closesResponseBodiesForEveryStatusBranch() throws Exception {
         for (int status : new int[]{200, 304, 404, 500, 503}) {
             CloseTrackingInputStream body = new CloseTrackingInputStream("<rss/>");
@@ -212,7 +240,8 @@ class FeedFetcherTest {
         Mockito.when(response.headers()).thenReturn(HttpHeaders.of(Map.of(), (name, value) -> true));
 
         FeedHttpClient client = Mockito.mock(FeedHttpClient.class);
-        Mockito.when(client.send(Mockito.any(HttpRequest.class))).thenReturn(response);
+        Mockito.when(client.send(Mockito.any(HttpRequest.class), Mockito.any(FeedHttpClient.HopGuard.class)))
+                .thenReturn(response);
 
         return new FeedFetcher(noRetryConfig, client, robots, new TestSleeper(), clock);
     }

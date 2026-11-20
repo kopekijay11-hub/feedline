@@ -20,13 +20,13 @@
 | **Persistence** | `feed_sources` registry + `items` table; unique `(source_id, guid)` makes ingestion insert-if-absent. Per-item skips are recorded in `ingest_skips` |
 | **Fetch policy** | `robots.txt` consulted per origin and cached for 24 hours; fail closed on 403, 5xx, and network/timeout errors; 404 means no rules (allow) |
 | **API** | `/api/v1/items` with keyset pagination and full-text search, `/api/v1/sources/health`, Actuator health/liveness/readiness probes, OpenAPI docs |
-| **Testing** | JUnit unit + MockWebServer wire tests + Testcontainers integration tests against real PostgreSQL and Kafka |
+| **Testing** | JUnit unit + JDK `HttpServer`/MockWebServer wire tests + Testcontainers integration tests against real PostgreSQL and Kafka |
 | **Static analysis** | SpotBugs runs at `verify` with `failOnError=true` |
 
 ## How to read this repository
 
 - **README.md** (this file) — what the service is, how it runs, and how it is tested.
-- **[REPORT-M2B-HARDENING.md](REPORT-M2B-HARDENING.md)** — latest hardening report: ingest isolation, health split, and ingest proof.
+- **[HANDOFF.md](HANDOFF.md)** — merged M3 state, completion/audit summary, and verification baseline.
 - **[DECISIONS.md](DECISIONS.md)** — the design-decision log: choices made, alternatives considered, and why.
 - **[HANDOFF.md](HANDOFF.md)** — current working notes.
 
@@ -85,8 +85,8 @@ ETag and Last-Modified are **bookmarks into the remote feed**. They advance only
 
 ## Tests and CI
 
-- `mvn clean verify` — the full local gate: unit tests, MockWebServer wire tests, Testcontainers PostgreSQL integration tests, plus SpotBugs with `failOnError=true`.
-- GitHub Actions runs `mvn verify` on pushes to `main` and on pull requests, but the free-tier minutes are exhausted until **December 1**; until they reset on the **1st of the month**, `mvn clean verify` locally is the verification gate.
+- `mvn clean verify` — the full local gate: JDK `HttpServer`/MockWebServer wire tests, Testcontainers PostgreSQL and Kafka integration tests (all under Surefire), plus SpotBugs with `failOnError=true`.
+- GitHub Actions runs the same `mvn clean verify` gate on pushes to `main` and on pull requests. `clean` also removes any stale `V7` migration artifact that an incremental build could leave on the classpath.
 - A test that cannot pass honestly is reported, never weakened just to make the suite green.
 
 ## About this build

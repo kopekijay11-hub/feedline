@@ -2,7 +2,9 @@ package ca.feedline.service;
 
 import org.junit.jupiter.api.Test;
 
+import java.net.InetAddress;
 import java.net.URI;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -46,6 +48,29 @@ class UrlSafetyTest {
         assertDoesNotThrow(() -> strict.validate(URI.create("https://1.1.1.1/feed.xml")));
         assertDoesNotThrow(() -> loopbackAllowed.validate(URI.create("http://localhost/feed.xml")));
         assertDoesNotThrow(() -> loopbackAllowed.validate(URI.create("http://127.0.0.1/feed.xml")));
+    }
+
+    @Test
+    void rejectsDnsAnswerThatChangesBetweenValidationAndConnect() throws Exception {
+        InetAddress first = InetAddress.getByName("8.8.8.8");
+        InetAddress rebound = InetAddress.getByName("1.1.1.1");
+        AtomicInteger calls = new AtomicInteger();
+        UrlSafety guard = new UrlSafety(false, host -> calls.getAndIncrement() == 0
+                ? new InetAddress[]{first} : new InetAddress[]{rebound});
+
+        UrlSafety.ValidatedTarget validated = guard.validate(URI.create("http://example.test/feed.xml"));
+
+        assertThrows(UrlSafety.UnsafeUrlException.class, () -> guard.assertUnchanged(validated));
+    }
+
+    @Test
+    void acceptsStableDnsAnswerOnRecheck() throws Exception {
+        InetAddress address = InetAddress.getByName("8.8.8.8");
+        UrlSafety guard = new UrlSafety(false, host -> new InetAddress[]{address});
+
+        UrlSafety.ValidatedTarget validated = guard.validate(URI.create("http://example.test/feed.xml"));
+
+        assertDoesNotThrow(() -> guard.assertUnchanged(validated));
     }
 
     private static void assertRejected(UrlSafety guard, String url) {

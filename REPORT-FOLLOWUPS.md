@@ -53,10 +53,10 @@ Findings regenerated with `mvn spotbugs:spotbugs` (baseline before fixes on this
 
 ### Wiring / end state
 - Added `spotbugs-exclude.xml` at repo root with per-class/method rationale-aligned suppressions.
-- Wired into `pom.xml` SpotBugs configuration via `<excludeFilterFile>${project.basedir}/spotbugs-exclude.xml</excludeFilterFile>` (execution/phase unchanged: `spotbugs:check` bound to `verify`, `failOnError=false`).
+- Wired into `pom.xml` SpotBugs configuration via `<excludeFilterFile>${project.basedir}/spotbugs-exclude.xml</excludeFilterFile>` (execution/phase unchanged: `spotbugs:check` bound to `verify`). On merged `main` the gate is strict: `failOnError=true`.
 - Post-fix `mvn spotbugs:spotbugs`: **0 BugInstances** in both `target/spotbugsXml.xml` and `target/spotbugs.xml`.
 - `mvn verify` (Docker available in-session, one heavy process at a time): **BUILD SUCCESS**. SpotBugs check reported `BugInstance size is 0`, `Error size is 0`, `No errors/warnings found`.
-- Tests during verify: **Tests run: 25, Failures: 0, Errors: 0, Skipped: 0** (Surefire, includes Testcontainers-backed integration/smoke tests) plus failsafe integration-test/verify phases completed. Expected error-log lines from negative-path tests (e.g. malformed/XXE fixtures, intentional duplicate-key constraint violations) were observed in output but all tests passed.
+- Tests during verify: **Tests run: 25, Failures: 0, Errors: 0, Skipped: 0** (Surefire, includes Testcontainers-backed integration/smoke tests). On `main` Failsafe was removed as an inert plugin: there are no `*IT` classes, so every test runs under Surefire. Expected error-log lines from negative-path tests (e.g. malformed/XXE fixtures, intentional duplicate-key constraint violations) were observed in output but all tests passed.
 
 ## 1c. STRETCH — Docker-free sliced context smoke test
 
