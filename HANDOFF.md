@@ -9,7 +9,7 @@
 - Renamed the outbox migration from `V7` to `V9`. It now runs after `V8` on databases that already applied `V8`, which is required with `validate-on-migrate: true` and the default `out-of-order: false`.
 - `V9` creates `outbox_events` with retry metadata (`attempts`, `next_attempt_at`, `last_error`, `poisoned_at`) and a unique `(topic, event_key)` constraint.
 - `OutboxRelayService` publishes the stored event topic (not just the configured default), locks rows with `FOR UPDATE SKIP LOCKED`, records bounded exponential backoff on transient failures, and quarantines permanent failures or retry exhaustion as poison events. It stops the batch on the first transient failure so one outage cannot stall all 50 rows behind the configured send wait, but it continues past poison rows.
-- Retry eligibility and backoff deadlines are evaluated with the same application `Clock`: the relay passes `clock.instant()` into the publishable query instead of relying on the database's `clock_timestamp()`. Poison rows can be requeued with a fresh retry budget, and the relay exposes pending/due/poison counts plus oldest-pending lag.
+- Retry eligibility and backoff deadlines are evaluated with the same application `Clock`: the relay passes `clock.instant()` into the publishable query instead of relying on the database's `clock_timestamp()`. Poison rows can be requeued with a fresh retry budget (atomically clearing `poisoned_at`, `attempts`, `next_attempt_at`, and `last_error`), and the relay exposes pending/due/poison counts plus oldest-pending lag.
 - `ItemIngestService` keeps per-item `PROPAGATION_REQUIRES_NEW`; the item and outbox row commit atomically (`saveAndFlush` on both). Duplicates are skipped by precheck and then by the `uq_items_source_guid` constraint. A `23505` is benign only when the constraint context names `uq_items_source_guid`; an outbox `uq_outbox_topic_event_key` violation is a real failure, not a benign duplicate. Skipped/poison items produce no outbox row. When `feed.outbox.enabled=false`, neither relay nor emission is active.
 - Only newly ingested items emit outbox events. Historical `items` rows are **not backfilled**; see `DECISIONS.md`.
 - The producer `delivery.timeout.ms` is derived from `feed.outbox.send-timeout-ms`, so the Kafka future's own deadline matches the relay's bounded send wait.
@@ -30,9 +30,9 @@
 ## Verification
 - Canonical command: `mvn clean verify` (used locally and in CI); `clean` removes any stale `target/classes/db/migration/V7__outbox_events.sql` before Flyway resolves migrations.
 - Result: `BUILD SUCCESS`
-- Tests: `94` run / `94` passed (`0` failures, `0` errors, `0` skipped).
+- Tests: `95` run / `95` passed (`0` failures, `0` errors, `0` skipped).
 - SpotBugs: `BugInstance size is 0`, `Error size is 0` (`failOnError=true`).
-- Full log: `/tmp/opencode/post-m3-polish.log`.
+- Full log: `/tmp/opencode/post-m3-relay-tests.log`.
 - No dead-container, NPE, context-startup, or Flyway errors. The 27 Kafka connection warnings match the prior full gate; WARN/ERROR lines that do appear are intentional negative-path assertions (HTTP 500/404/503, bad/oversized bodies, SSRF blocks, robots fail-closed, duplicate-key/NUL/check-constraint violations, parse failures, paused-Kafka outage/retry, and quarantined poison events).
 
 ## Environment notes

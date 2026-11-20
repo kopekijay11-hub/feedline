@@ -7,7 +7,7 @@ All notable changes to Feedline are recorded here. The format follows [Keep a Ch
 Milestone 3 — Kafka outbox and post-merge polish (merged to `main` at `f598f1f`).
 
 - Transactional outbox: `V9__outbox_events.sql` stores events atomically with newly ingested items; no historical backfill
-- Outbox relay with `FOR UPDATE SKIP LOCKED`, stored-topic publishing, bounded exponential backoff, poison quarantine/requeue, and pending/due/poison/lag observability hooks
+- Outbox relay with `FOR UPDATE SKIP LOCKED`, stored-topic publishing, bounded exponential backoff, poison quarantine/requeue, pending/due/poison/lag observability hooks, and atomic poison replay
 - Kafka producer `delivery.timeout.ms` derived from the relay send wait; retry eligibility uses the application clock
 - Unique-constraint duplicate handling scoped to `uq_items_source_guid`; outbox `uq_outbox_topic_event_key` violations are real failures
 - Fetch hardening: per-hop robots validation, lock-free per-host waiting, response charset handling, and DNS address rechecks

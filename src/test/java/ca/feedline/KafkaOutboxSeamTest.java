@@ -251,7 +251,9 @@ class KafkaOutboxSeamTest {
     @Test
     void poisonEventIsQuarantinedByRealKafkaAndCanBeRecovered() throws Exception {
         String invalidTopic = "bad topic ".repeat(25);
+        outboxEvents.saveAndFlush(new OutboxEvent(1001L, TOPIC, "healthy-before", "{}"));
         OutboxEvent poison = outboxEvents.saveAndFlush(new OutboxEvent(4242L, invalidTopic, "poison-key", "{}"));
+        outboxEvents.saveAndFlush(new OutboxEvent(1002L, TOPIC, "healthy-after", "{}"));
 
         relay.publishPending();
 
@@ -260,6 +262,8 @@ class KafkaOutboxSeamTest {
         assertThat(quarantined.getPublishedAt()).isNull();
         assertThat(quarantined.getLastError()).isNotBlank();
         assertThat(relay.observe().poisoned()).isGreaterThanOrEqualTo(1);
+        assertThat(outboxEvents.findAll()).filteredOn(OutboxEvent::isPublished).extracting(OutboxEvent::getEventKey)
+                .containsExactlyInAnyOrder("healthy-before", "healthy-after");
 
         quarantined.setTopic(TOPIC);
         outboxEvents.saveAndFlush(quarantined);
@@ -267,6 +271,8 @@ class KafkaOutboxSeamTest {
         OutboxEvent recovered = outboxEvents.findById(poison.getId()).orElseThrow();
         assertThat(recovered.getPoisonedAt()).isNull();
         assertThat(recovered.getAttempts()).isZero();
+        assertThat(recovered.getNextAttemptAt()).isNotNull();
+        assertThat(recovered.getLastError()).isNull();
 
         try (KafkaConsumer<String, String> consumer = consumerAtEnd()) {
             relay.publishPending();
