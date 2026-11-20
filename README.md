@@ -15,12 +15,12 @@
 | | |
 |---|---|
 | **Service type** | Single-process scheduled feed ingestion (RSS/Atom) |
-| **Stack** | Java 21 · Spring Boot 3.3.5 (`web`, `actuator`, `data-jpa`) · PostgreSQL 16 · Flyway (V1–V6) · Rome · Maven |
+| **Stack** | Java 21 · Spring Boot 3.3.5 (`web`, `actuator`, `data-jpa`) · PostgreSQL 16 · Flyway (V1–V9) · Kafka · Rome · Maven |
 | **Ingestion model** | One fixed-delay poll cycle over 10 enabled feeds (news, markets, and central-bank press releases), with per-host politeness, conditional GET, bounded redirects, retries, timeouts, and body caps |
 | **Persistence** | `feed_sources` registry + `items` table; unique `(source_id, guid)` makes ingestion insert-if-absent. Per-item skips are recorded in `ingest_skips` |
 | **Fetch policy** | `robots.txt` consulted per origin and cached for 24 hours; fail closed on 403, 5xx, and network/timeout errors; 404 means no rules (allow) |
 | **API** | `/api/v1/items` with keyset pagination and full-text search, `/api/v1/sources/health`, Actuator health/liveness/readiness probes, OpenAPI docs |
-| **Testing** | JUnit unit + MockWebServer wire tests + Testcontainers integration tests against real PostgreSQL |
+| **Testing** | JUnit unit + MockWebServer wire tests + Testcontainers integration tests against real PostgreSQL and Kafka |
 | **Static analysis** | SpotBugs runs at `verify` with `failOnError=true` |
 
 ## How to read this repository
@@ -42,7 +42,7 @@ A poll cycle walks the ten feeds configured in `application.yml` (BBC, The Verge
 4. ingests each item in its own `REQUIRES_NEW` transaction, so one bad item cannot roll back the feed;
 5. records skipped items and advances the stored validators only after a fully clean `200` poll.
 
-Flyway owns the schema from V1 through V6; the application never creates tables itself.
+Flyway owns the schema from V1 through V9; the application never creates tables itself. V8 adds keyset/skip-retention/optimistic-lock support and V9 adds the Kafka outbox.
 
 ## Architecture
 
@@ -52,7 +52,7 @@ flowchart LR
     R --> F["Polite fetcher<br/>(conditional GET, retries)"]
     F --> P["Rome parser + normalizer"]
     P --> I["Per-item REQUIRES_NEW ingest"]
-    I --> DB[("PostgreSQL 16<br/>Flyway V1–V7")]
+    I --> DB[("PostgreSQL 16<br/>Flyway V1–V9")]
     I --> O[("outbox_events<br/>transactional outbox")]
     O --> K["Kafka relay<br/>feedline.items.ingested"]
     DB --> A["/api/v1/items<br/>/api/v1/sources/health<br/>/actuator/health/*"]

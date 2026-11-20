@@ -38,11 +38,13 @@ public class ItemIngestService {
     private final OutboxEventRepository outboxEvents;
     private final ObjectMapper objectMapper;
     private final String topic;
+    private final boolean outboxEnabled;
     private final TransactionTemplate txTemplate;
 
     public ItemIngestService(FeedNormalizer normalizer, ItemRepository items, FeedSourceRepository feedSources,
                              OutboxEventRepository outboxEvents, ObjectMapper objectMapper,
                              @Value("${feed.outbox.topic:feedline.items.ingested}") String topic,
+                             @Value("${feed.outbox.enabled:true}") boolean outboxEnabled,
                              PlatformTransactionManager transactionManager) {
         this.normalizer = normalizer;
         this.items = items;
@@ -50,6 +52,7 @@ public class ItemIngestService {
         this.outboxEvents = outboxEvents;
         this.objectMapper = objectMapper;
         this.topic = topic;
+        this.outboxEnabled = outboxEnabled;
         this.txTemplate = new TransactionTemplate(transactionManager);
         this.txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -70,7 +73,9 @@ public class ItemIngestService {
                     return new ItemIngestResult(guid, false);
                 }
                 items.saveAndFlush(item);
-                outboxEvents.save(outboxEventFor(item));
+                if (outboxEnabled) {
+                    outboxEvents.saveAndFlush(outboxEventFor(item));
+                }
                 return new ItemIngestResult(guid, true);
             });
         } catch (RuntimeException e) {

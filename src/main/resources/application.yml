@@ -26,6 +26,13 @@ spring:
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 30000
+        request.timeout.ms: 5000
+        retries: 10
 
 management:
   endpoints:
@@ -86,6 +93,10 @@ feed:
     topic: feedline.items.ingested
     poll-delay: 2000
     batch-size: 50
+    max-attempts: 5
+    initial-backoff-ms: 1000
+    max-backoff-ms: 60000
+    send-timeout-ms: 5000
 
   # Feed sources
   sources:

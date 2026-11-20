@@ -2,6 +2,7 @@ package ca.feedline;
 
 import ca.feedline.config.FeedProperties.Source;
 import ca.feedline.domain.Item;
+import ca.feedline.domain.OutboxEvent;
 import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.ItemRepository;
 import ca.feedline.repository.OutboxEventRepository;
@@ -39,6 +40,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -80,7 +82,10 @@ class KafkaOutboxSeamTest {
         registry.add("feed.outbox.poll-delay", () -> "86400000");
         registry.add("feed.outbox.topic", () -> TOPIC);
         registry.add("feed.outbox.batch-size", () -> "50");
-        registry.add("feed.scheduling.enabled", () -> "false");
+        registry.add("feed.ssrf-allow-loopback", () -> "true");
+        registry.add("feed.outbox.initial-backoff-ms", () -> "100");
+        registry.add("feed.outbox.max-backoff-ms", () -> "1000");
+        registry.add("feed.scheduling-enabled", () -> "false");
     }
 
     @Autowired
@@ -167,6 +172,9 @@ class KafkaOutboxSeamTest {
             for (ConsumerRecord<String, String> record : records) {
                 assertPayload(record, stored.getId());
             }
+
+            relay.publishPending();
+            assertThat(consumer.poll(Duration.ofSeconds(2)).count()).isZero();
         }
     }
 
@@ -178,7 +186,9 @@ class KafkaOutboxSeamTest {
                 entry("outage-1", "Outage one", "https://example.test/outage-1"),
                 entry("outage-2", "Outage two", "https://example.test/outage-2")));
 
-        DockerClientFactory.instance().client().pauseContainerCmd(kafka.getContainerId()).exec();
+        String containerId = kafka.getContainerId();
+        assertThat(containerId).as("Kafka Testcontainer id").isNotNull();
+        DockerClientFactory.instance().client().pauseContainerCmd(containerId).exec();
         try {
             assertThat(poller.pollSingleSource(source())).isEqualTo(2);
             assertThat(items.count()).isEqualTo(2);
@@ -188,11 +198,23 @@ class KafkaOutboxSeamTest {
             assertThat(outboxEvents.findAll()).hasSize(2)
                     .allSatisfy(event -> assertThat(event.getPublishedAt()).isNull());
 
+            Instant beforeFailure = Instant.now();
             assertDoesNotThrow(relay::publishPending);
             assertThat(outboxEvents.findAll()).hasSize(2)
                     .allSatisfy(event -> assertThat(event.getPublishedAt()).isNull());
+            List<OutboxEvent> retried = outboxEvents.findAll().stream()
+                    .filter(event -> event.getAttempts() > 0)
+                    .toList();
+            assertThat(retried).hasSize(1)
+                    .singleElement()
+                    .satisfies(event -> {
+                        assertThat(event.getAttempts()).isEqualTo(1);
+                        assertThat(event.getNextAttemptAt()).isAfter(beforeFailure);
+                        assertThat(event.getPoisonedAt()).isNull();
+                        assertThat(event.getLastError()).isNotBlank();
+                    });
         } finally {
-            DockerClientFactory.instance().client().unpauseContainerCmd(kafka.getContainerId()).exec();
+            DockerClientFactory.instance().client().unpauseContainerCmd(containerId).exec();
         }
 
         ca.feedline.domain.FeedSource stored = sources.findByUrl(feedUrl()).orElseThrow();
@@ -226,6 +248,7 @@ class KafkaOutboxSeamTest {
         String guid = guidOf(record.key());
         JsonNode payload = mapper.readTree(record.value());
         Item item = items.findBySourceIdAndGuid(sourceId, guid).orElseThrow();
+        assertThat(item.getPublishedAt()).isNotNull();
         assertThat(payload.get("itemId").asLong()).isEqualTo(item.getId());
         assertThat(payload.get("sourceId").asLong()).isEqualTo(sourceId);
         assertThat(payload.get("guid").asText()).isEqualTo(guid);
@@ -236,6 +259,7 @@ class KafkaOutboxSeamTest {
     }
 
     private String guidOf(String key) {
+        assertThat(key).as("Kafka record key").isNotNull().contains(":");
         return key.substring(key.indexOf(':') + 1);
     }
 
@@ -264,8 +288,10 @@ class KafkaOutboxSeamTest {
         assertThat(consumer.assignment()).isNotEmpty();
         Map<TopicPartition, Long> endOffsets = consumer.endOffsets(consumer.assignment());
         for (TopicPartition partition : consumer.assignment()) {
-            consumer.seek(partition, endOffsets.get(partition));
-            assertThat(consumer.position(partition)).isEqualTo(endOffsets.get(partition));
+            assertThat(endOffsets).as("end offsets").containsKey(partition);
+            long offset = endOffsets.get(partition);
+            consumer.seek(partition, offset);
+            assertThat(consumer.position(partition)).isEqualTo(offset);
         }
         return consumer;
     }

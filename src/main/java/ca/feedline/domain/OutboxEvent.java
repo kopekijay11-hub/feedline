@@ -13,6 +13,8 @@ import jakarta.persistence.Table;
 @Table(name = "outbox_events")
 public class OutboxEvent {
 
+    private static final int MAX_ERROR_LENGTH = 2000;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -35,6 +37,18 @@ public class OutboxEvent {
     @Column(name = "published_at")
     private Instant publishedAt;
 
+    @Column(nullable = false)
+    private int attempts;
+
+    @Column(name = "next_attempt_at", nullable = false)
+    private Instant nextAttemptAt;
+
+    @Column(name = "last_error", columnDefinition = "TEXT")
+    private String lastError;
+
+    @Column(name = "poisoned_at")
+    private Instant poisonedAt;
+
     public OutboxEvent() {
     }
 
@@ -43,6 +57,8 @@ public class OutboxEvent {
         this.topic = topic;
         this.eventKey = eventKey;
         this.payload = payload;
+        this.attempts = 0;
+        this.nextAttemptAt = Instant.now();
     }
 
     public Long getId() {
@@ -93,7 +109,42 @@ public class OutboxEvent {
         return publishedAt;
     }
 
-    public void setPublishedAt(Instant publishedAt) {
-        this.publishedAt = publishedAt;
+    public int getAttempts() {
+        return attempts;
+    }
+
+    public Instant getNextAttemptAt() {
+        return nextAttemptAt;
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
+    public Instant getPoisonedAt() {
+        return poisonedAt;
+    }
+
+    public boolean isPoisoned() {
+        return poisonedAt != null;
+    }
+
+    public void markPublished(Instant at) {
+        this.publishedAt = at;
+        this.lastError = null;
+    }
+
+    public void recordFailure(String error) {
+        this.attempts++;
+        this.lastError = error == null ? "unknown publish failure"
+                : error.substring(0, Math.min(error.length(), MAX_ERROR_LENGTH));
+    }
+
+    public void scheduleRetry(Instant at) {
+        this.nextAttemptAt = at;
+    }
+
+    public void markPoisoned(Instant at) {
+        this.poisonedAt = at;
     }
 }

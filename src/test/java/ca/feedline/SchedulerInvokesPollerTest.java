@@ -17,6 +17,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -32,8 +33,10 @@ import static org.mockito.ArgumentMatchers.anyString;
 @SpringBootTest(properties = {
         "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration",
         "feed.poll-delay=200",
+        "feed.outbox.enabled=false",
         "management.endpoint.health.group.readiness.include=readinessState"
 })
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Import(SchedulerInvokesPollerTest.Stubs.class)
 class SchedulerInvokesPollerTest {
 
@@ -91,7 +94,7 @@ class SchedulerInvokesPollerTest {
             FeedFetcher fetcher = Mockito.mock(FeedFetcher.class);
             Mockito.when(fetcher.fetch(anyString(), any(), any())).thenAnswer(invocation -> {
                 FETCH_COUNT.incrementAndGet();
-                return FeedFetchResult.failure(500, URL);
+                return FeedFetchResult.notModified(URL);
             });
             return fetcher;
         }
