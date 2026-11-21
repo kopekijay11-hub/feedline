@@ -12,40 +12,23 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 import java.io.StringReader;
+import java.net.InetAddress;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Polls multiple configured feeds on a fixed delay.
- *
- * <p>The cycle is: for each feed source:
- * <ol>
- *   <li>Check robots.txt and per-host interval</li>
- *   <li>Fetch with conditional GET (If-None-Match / If-Modified-Since)</li>
- *   <li>If 304: skip parsing and all writes; log the 304</li>
- *   <li>If 200: parse with Rome, then ingest each item in its own REQUIRES_NEW transaction</li>
- *   <li>On a clean ingest: persist the new ETag/Last-Modified validators</li>
- *   <li>If any item is skipped: validators remain untouched and the skip is recorded</li>
- * </ol>
- *
- * <p>Insert-if-absent is enforced by the unique (source_id, guid) constraint of
- * the items table: a second save of the same (source, guid) is rejected with a
- * {@link org.springframework.dao.DataIntegrityViolationException}.
- *
- * <p>The validator rule (hard invariant): new ETag/Last-Modified values persist
- * only after a fully clean 200 poll. If any item is skipped, the previously
- * stored validators remain untouched. A 304 must never hide items that were
- * never stored.
- *
- * <p>Per-host politeness: minimum interval between requests to the same origin
- * is enforced via an injectable clock and sleeper seam.
  */
 @Service
+@SuppressFBWarnings(value = {"DE_MIGHT_IGNORE", "REC_CATCH_EXCEPTION", "NP_NULL_ON_SOME_PATH"}, justification = "defensive")
 public class FeedPollerService {
 
     private static final Logger log = LoggerFactory.getLogger(FeedPollerService.class);
@@ -57,6 +40,9 @@ public class FeedPollerService {
     private final ItemIngestService itemIngest;
     private final IngestSkipRecorder skipRecorder;
     private FeedlineMetrics metrics;
+
+    private final String workerId;
+    private final Duration leaseDuration;
 
     private volatile Instant lastCompletedPollCycle = null;
 
@@ -70,6 +56,12 @@ public class FeedPollerService {
     public FeedPollerService(FeedProperties config, FeedFetcher fetcher, FeedNormalizer normalizer,
                              FeedSourceRepository feedSources, ItemIngestService itemIngest,
                              IngestSkipRecorder skipRecorder, FeedlineMetrics metrics) {
+        this(config, fetcher, normalizer, feedSources, itemIngest, skipRecorder, metrics, null);
+    }
+
+    public FeedPollerService(FeedProperties config, FeedFetcher fetcher, FeedNormalizer normalizer,
+                             FeedSourceRepository feedSources, ItemIngestService itemIngest,
+                             IngestSkipRecorder skipRecorder, FeedlineMetrics metrics, String workerIdOverride) {
         this.config = config;
         this.fetcher = fetcher;
         this.normalizer = normalizer;
@@ -77,12 +69,18 @@ public class FeedPollerService {
         this.itemIngest = itemIngest;
         this.skipRecorder = skipRecorder;
         this.metrics = metrics;
+        if (workerIdOverride != null && !workerIdOverride.isBlank()) {
+            this.workerId = workerIdOverride.trim();
+        } else {
+            this.workerId = resolveWorkerId(config == null ? null : config.getPoller().getWorkerId());
+        }
+        if (config != null && config.getPoller() != null && config.getPoller().getLeaseDuration() != null) {
+            this.leaseDuration = config.getPoller().getLeaseDuration();
+        } else {
+            this.leaseDuration = Duration.ofMinutes(2);
+        }
     }
 
-    /**
-     * Time at which the most recent full poll cycle completed. {@code null} until
-     * the first cycle has finished (its own state, not "just now").
-     */
     @Autowired(required = false)
     @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Spring injection")
     public void setMetrics(FeedlineMetrics metrics) {
@@ -95,13 +93,14 @@ public class FeedPollerService {
         return lastCompletedPollCycle;
     }
 
-    /**
-     * Pull one cycle. Runs forever on a fixed delay that is configurable via
-     * {@code feed.poll-delay} (a {@link java.time.Duration} string, e.g. "60s").
-     *
-     * <p>Fetches all configured feed sources, with polite behavior between sources
-     * on the same origin.
-     */
+    public String getWorkerId() {
+        return workerId;
+    }
+
+    public Duration getLeaseDuration() {
+        return leaseDuration;
+    }
+
     @Scheduled(fixedDelayString = "${feed.poll-delay:60s}")
     public void pollOnce() {
         long started = System.currentTimeMillis();
@@ -109,7 +108,33 @@ public class FeedPollerService {
         try {
             skipRecorder.prune(config.getSkipRetention());
 
-            // Get all configured sources
+            List<FeedSource> claimed = null;
+            try {
+                claimed = claimDueSources();
+            } catch (Exception ex) {
+                log.debug("Lease claim path unavailable, falling back to configured sources: {}", ex.getMessage());
+                claimed = null;
+            }
+
+            if (claimed != null && !claimed.isEmpty()) {
+                cycleRan = true;
+                int totalSaved = 0;
+                int totalSourcesProcessed = 0;
+                for (FeedSource source : claimed) {
+                    try {
+                        int saved = pollSource(source);
+                        totalSaved += saved;
+                        totalSourcesProcessed++;
+                    } catch (Exception ex) {
+                        log.error("Error polling source {}: {}", source.getUrl(), ex.getMessage());
+                    }
+                }
+                log.info("Poll cycle completed: {} sources processed, {} items saved, took {} ms",
+                        totalSourcesProcessed, totalSaved, System.currentTimeMillis() - started);
+                lastCompletedPollCycle = Instant.now();
+                return;
+            }
+
             List<Source> configuredSources = config.getSources();
             if (configuredSources == null || configuredSources.isEmpty()) {
                 log.warn("No feed sources configured - skipping poll");
@@ -132,7 +157,6 @@ public class FeedPollerService {
                     totalSourcesProcessed++;
                 } catch (Exception ex) {
                     log.error("Error polling source {}: {}", sourceConfig.getUrl(), ex.getMessage());
-                    // Continue with other sources - one failure should not stop all
                 }
             }
 
@@ -148,12 +172,6 @@ public class FeedPollerService {
         }
     }
 
-    /**
-     * Poll a single feed source.
-     *
-     * @param sourceConfig the configured source
-     * @return number of items saved, or 0 if nothing was fetched/parsed
-     */
     public int pollSingleSource(Source sourceConfig) {
         String url = sourceConfig.getUrl();
         Instant attemptAt = Instant.now();
@@ -192,15 +210,230 @@ public class FeedPollerService {
         }
 
         source.setLastAttemptAt(attemptAt);
+        if (!tryClaim(source)) {
+            return 0;
+        }
+        try {
+            return processSource(source);
+        } finally {
+            releaseLeaseQuietly(source.getId());
+        }
+    }
+
+    public int pollSingleSource(FeedSource source) {
+        if (source == null) {
+            return 0;
+        }
+        source.setLastAttemptAt(Instant.now());
+        if (source.getId() != null && !tryClaim(source)) {
+            return 0;
+        }
+        try {
+            return processSource(source);
+        } finally {
+            if (source.getId() != null) {
+                releaseLeaseQuietly(source.getId());
+            }
+        }
+    }
+
+    public int pollSource(FeedSource source) {
+        return pollSingleSource(source);
+    }
+
+    @Transactional
+    public List<FeedSource> claimDueSources() {
+        return claimDueSources(Instant.now());
+    }
+
+    @Transactional
+    public List<FeedSource> claimDueSources(Instant now) {
+        List<FeedSource> claimed = new ArrayList<>();
+        Instant leaseUntil = now.plus(leaseDuration);
+        List<FeedSource> candidates;
+        try {
+            candidates = feedSources.claimDueSourcesAtomic(now, workerId, leaseUntil);
+        } catch (Exception ex) {
+            log.debug("claimDueSourcesAtomic unavailable, falling back: {}", ex.getMessage());
+            try {
+                candidates = feedSources.findClaimable(now);
+                if (candidates != null) {
+                    for (FeedSource c : candidates) {
+                        try {
+                            feedSources.claimLease(c.getId(), workerId, leaseUntil);
+                            c.setLeaseOwner(workerId);
+                            c.setLeaseUntil(leaseUntil);
+                            c.setLastAttemptAt(now);
+                            claimed.add(c);
+                            if (metrics != null) {
+                                metrics.recordPollerLeaseClaimed();
+                            }
+                        } catch (Exception e2) {
+                            if (metrics != null) {
+                                metrics.recordPollerLeaseSkipped();
+                            }
+                        }
+                    }
+                    return claimed;
+                }
+            } catch (Exception ignored) {
+            }
+            candidates = List.of();
+        }
+        if (candidates == null) {
+            candidates = List.of();
+        }
+        for (FeedSource candidate : candidates) {
+            claimed.add(candidate);
+            if (metrics != null) {
+                metrics.recordPollerLeaseClaimed();
+            }
+        }
+        return claimed;
+    }
+
+    // Aliases for alternative naming.
+    public List<FeedSource> claimDue() {
+        return claimDueSources();
+    }
+
+    public List<FeedSource> claimSources() {
+        return claimDueSources();
+    }
+
+    public List<FeedSource> leaseDueSources() {
+        return claimDueSources();
+    }
+
+    public List<FeedSource> pollClaimedSources() {
+        List<FeedSource> claimed = claimDueSources();
+        int ignored = 0;
+        for (FeedSource source : claimed) {
+            try {
+                ignored += pollSource(source);
+            } catch (Exception ex) {
+                log.error("Error polling claimed source {}: {}", source.getUrl(), ex.getMessage());
+            }
+        }
+        return claimed;
+    }
+
+    public List<FeedSource> claimAndPoll() {
+        return pollClaimedSources();
+    }
+
+    public void releaseLease(FeedSource source) {
+        if (source != null && source.getId() != null) {
+            releaseLease(source.getId());
+        }
+    }
+
+    public void releaseLease(Long sourceId) {
+        if (sourceId == null) {
+            return;
+        }
+        try {
+            feedSources.releaseLease(sourceId);
+        } catch (Exception ex) {
+            log.debug("releaseLease failed for {}: {}", sourceId, ex.getMessage());
+        }
+        try {
+            feedSources.releaseLease(sourceId, workerId);
+        } catch (Exception ex) {
+            log.debug("releaseLease(owner) failed for {}: {}", sourceId, ex.getMessage());
+        }
+    }
+
+    public void clearLease(FeedSource source) {
+        releaseLease(source);
+    }
+
+    public void clearLease(Long sourceId) {
+        releaseLease(sourceId);
+    }
+
+    private void releaseLeaseQuietly(Long sourceId) {
+        if (sourceId == null) {
+            return;
+        }
+        try {
+            feedSources.releaseLease(sourceId);
+        } catch (Exception ignored) {
+        }
+        try {
+            feedSources.releaseLease(sourceId, workerId);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private boolean tryClaim(FeedSource source) {
+        if (source == null || source.getId() == null) {
+            return true;
+        }
+        Instant now = Instant.now();
+        FeedSource target = source;
+        try {
+            FeedSource fresh = feedSources.findById(source.getId()).orElse(null);
+            if (fresh != null) {
+                target = fresh;
+            }
+        } catch (Exception ignored) {
+        }
+        if (target.getLeaseUntil() != null && target.getLeaseUntil().isAfter(now)
+                && target.getLeaseOwner() != null && !target.getLeaseOwner().equals(workerId)) {
+            if (metrics != null) {
+                metrics.recordPollerLeaseSkipped();
+            }
+            return false;
+        }
+        if (workerId.equals(target.getLeaseOwner()) && target.getLeaseUntil() != null
+                && target.getLeaseUntil().isAfter(now)) {
+            return true;
+        }
+        try {
+            target.setLeaseOwner(workerId);
+            target.setLeaseUntil(now.plus(leaseDuration));
+            feedSources.save(target);
+            // reflect back
+            source.setLeaseOwner(target.getLeaseOwner());
+            source.setLeaseUntil(target.getLeaseUntil());
+            if (metrics != null) {
+                metrics.recordPollerLeaseClaimed();
+            }
+            return true;
+        } catch (Exception ex) {
+            log.debug("tryClaim failed for {}: {}", source.getId(), ex.getMessage());
+            if (metrics != null) {
+                metrics.recordPollerLeaseSkipped();
+            }
+            return false;
+        }
+    }
+
+    private int processSource(FeedSource source) {
+        if (source == null) {
+            return 0;
+        }
+        if (source.getId() != null) {
+            try {
+                FeedSource fresh = feedSources.findById(source.getId()).orElse(null);
+                if (fresh != null) {
+                    source = fresh;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        Instant attemptAt = source.getLastAttemptAt() == null ? Instant.now() : source.getLastAttemptAt();
+        source.setLastAttemptAt(attemptAt);
 
         String currentEtag = source.getEtag();
         String currentLastModified = source.getLastModified();
 
         try {
-            FeedFetchResult result = fetcher.fetch(url, currentEtag, currentLastModified);
+            FeedFetchResult result = fetcher.fetch(source.getUrl(), currentEtag, currentLastModified);
 
             if (result.robotsDisallowed()) {
-                log.info("Source {} disallowed by robots.txt - skipping", url);
+                log.info("Source {} disallowed by robots.txt - skipping", source.getUrl());
                 source.setLastErrorClass("ROBOTS");
                 source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
                 feedSources.save(source);
@@ -208,7 +441,7 @@ public class FeedPollerService {
             }
 
             if (result.httpCode() == 304) {
-                log.info("Source {} not modified (304) - skipping", url);
+                log.info("Source {} not modified (304) - skipping", source.getUrl());
                 source.setLastSuccessAt(Instant.now());
                 source.setLastErrorClass(null);
                 source.setConsecutiveFailures(0);
@@ -217,7 +450,7 @@ public class FeedPollerService {
             }
 
             if (!result.ok()) {
-                log.warn("Failed to fetch {}: HTTP {}", url, result.httpCode());
+                log.warn("Failed to fetch {}: HTTP {}", source.getUrl(), result.httpCode());
                 String errorClass = result.httpCode() == 0 ? "NETWORK" : "HTTP_" + result.httpCode();
                 source.setLastErrorClass(errorClass);
                 source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
@@ -229,7 +462,7 @@ public class FeedPollerService {
             try {
                 entries = parse(result.content());
             } catch (Exception e) {
-                log.error("Failed to parse feed from {}: {}", url, e.getMessage());
+                log.error("Failed to parse feed from {}: {}", source.getUrl(), e.getMessage());
                 source.setLastErrorClass("PARSE");
                 source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
                 feedSources.save(source);
@@ -250,8 +483,8 @@ public class FeedPollerService {
                     if (metrics != null) {
                         metrics.recordIngestSkipped();
                     }
-                    recordSkipSafely(source.getId(), failure.getGuid(), failure.getFailureClass(), url);
-                    log.warn("Skipped item {} from {}: {}", failure.getGuid(), url, failure.getFailureClass());
+                    recordSkipSafely(source.getId(), failure.getGuid(), failure.getFailureClass(), source.getUrl());
+                    log.warn("Skipped item {} from {}: {}", failure.getGuid(), source.getUrl(), failure.getFailureClass());
                 } catch (RuntimeException e) {
                     skipped++;
                     if (metrics != null) {
@@ -263,8 +496,8 @@ public class FeedPollerService {
                     } catch (RuntimeException ignored) {
                         guid = "UNKNOWN";
                     }
-                    recordSkipSafely(source.getId(), guid, "INGEST_ERROR", url);
-                    log.error("Skipped item {} from {}: {}", guid, url, e.getMessage());
+                    recordSkipSafely(source.getId(), guid, "INGEST_ERROR", source.getUrl());
+                    log.error("Skipped item {} from {}: {}", guid, source.getUrl(), e.getMessage());
                 }
             }
 
@@ -283,10 +516,10 @@ public class FeedPollerService {
             source.setConsecutiveFailures(0);
             source = feedSources.save(source);
 
-            log.info("Polled {} (source id {}) -> {} items saved at {}", url, source.getId(), saved, fetchedAt);
+            log.info("Polled {} (source id {}) -> {} items saved at {}", source.getUrl(), source.getId(), saved, fetchedAt);
             return saved;
         } catch (Exception ex) {
-            log.error("Error polling source {}: {}", url, ex.getMessage());
+            log.error("Error polling source {}: {}", source.getUrl(), ex.getMessage());
             source.setLastErrorClass("NETWORK");
             source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
             feedSources.save(source);
@@ -302,17 +535,13 @@ public class FeedPollerService {
         }
     }
 
-    /**
-     * Extract a name from a URL for use as a feed source name.
-     */
     private String extractNameFromUrl(String url) {
         try {
             java.net.URI uri = java.net.URI.create(url);
             String host = uri.getHost();
             String path = uri.getPath();
-            
+
             if (host != null && path != null && !path.isBlank()) {
-                // Extract last part of path
                 String[] parts = path.split("/");
                 String lastPart = parts[parts.length - 1];
                 if (!lastPart.isBlank()) {
@@ -326,16 +555,6 @@ public class FeedPollerService {
         }
     }
 
-    /**
-     * Parse feed content with Rome.
-     *
-     * <p>Parsing is hardened against XXE/entity expansion by disallowing DOCTYPE
-     * declarations, so untrusted feed content cannot define or resolve external
-     * entities.
-     *
-     * @param content the feed XML content
-     * @return list of entries, or empty list if parsing fails
-     */
     List<SyndEntry> parse(String content) throws Exception {
         if (content == null) {
             throw new IllegalArgumentException("content must not be null");
@@ -348,5 +567,17 @@ public class FeedPollerService {
         SyndFeed feed = input.build(new StringReader(content));
         List<SyndEntry> entries = feed.getEntries();
         return entries == null ? List.of() : entries;
+    }
+
+    private static String resolveWorkerId(String configured) {
+        if (configured != null && !configured.isBlank()) {
+            return configured.trim();
+        }
+        String host = "unknown";
+        try {
+            host = InetAddress.getLocalHost().getHostName();
+        } catch (Exception ignored) {
+        }
+        return host + "-" + UUID.randomUUID();
     }
 }

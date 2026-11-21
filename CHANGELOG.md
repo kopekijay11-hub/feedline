@@ -52,3 +52,11 @@ Milestone 4 Phase 2 — Operator admin API & security boundary.
 - Header-token auth boundary for `/api/v1/admin/**` (constant-time comparison)
 - Admin poisoned outbox listing, single replay, and batch replay endpoints
 - RFC 7807 problem+json for 401/403/404/409/400
+
+## [0.6.0] — 2026-11-20
+
+Milestone 4 Phase 3 — Multi-instance source leasing.
+
+- `V11__source_poller_leases.sql`: nullable `lease_owner`/`lease_until` plus partial claim index
+- `FOR UPDATE SKIP LOCKED` claim-and-release leasing with configurable duration and worker id
+- Expired-lease crash recovery and contention metrics

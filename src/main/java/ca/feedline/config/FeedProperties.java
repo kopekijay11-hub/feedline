@@ -87,6 +87,8 @@ public class FeedProperties {
 
     private Admin admin = new Admin();
 
+    private Poller poller = new Poller();
+
     public List<Source> getSources() {
         return sources;
     }
@@ -207,6 +209,14 @@ public class FeedProperties {
         this.admin = admin;
     }
 
+    public Poller getPoller() {
+        return poller;
+    }
+
+    public void setPoller(Poller poller) {
+        this.poller = poller == null ? new Poller() : poller;
+    }
+
     /**
      * Outbox configuration.
      */
@@ -293,6 +303,30 @@ public class FeedProperties {
 
         public void setHeaderName(String headerName) {
             this.headerName = headerName;
+        }
+    }
+
+    /**
+     * Poller lease configuration.
+     */
+    public static class Poller {
+        private Duration leaseDuration = Duration.ofMinutes(2);
+        private String workerId = "";
+
+        public Duration getLeaseDuration() {
+            return leaseDuration;
+        }
+
+        public void setLeaseDuration(Duration leaseDuration) {
+            this.leaseDuration = leaseDuration == null ? Duration.ofMinutes(2) : leaseDuration;
+        }
+
+        public String getWorkerId() {
+            return workerId;
+        }
+
+        public void setWorkerId(String workerId) {
+            this.workerId = workerId == null ? "" : workerId;
         }
     }
 

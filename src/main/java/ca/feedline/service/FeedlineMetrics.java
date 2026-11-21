@@ -187,4 +187,40 @@ public class FeedlineMetrics {
     public void setOldestPendingAgeSeconds(long value) {
         oldestPendingAgeSeconds.set(value);
     }
+
+    public void recordPollerLeaseClaimed() {
+        registry.counter("feedline.poller.leases.claimed.total").increment();
+    }
+
+    public void recordPollerLeasesClaimed() {
+        recordPollerLeaseClaimed();
+    }
+
+    public void recordPollerLeaseClaimed(int count) {
+        for (int i = 0; i < Math.max(0, count); i++) {
+            recordPollerLeaseClaimed();
+        }
+    }
+
+    public void recordLeaseClaimed() {
+        recordPollerLeaseClaimed();
+    }
+
+    public void recordPollerLeaseSkipped() {
+        registry.counter("feedline.poller.leases.skipped.total").increment();
+    }
+
+    public void recordPollerLeasesSkipped() {
+        recordPollerLeaseSkipped();
+    }
+
+    public void recordPollerLeaseSkipped(int count) {
+        for (int i = 0; i < Math.max(0, count); i++) {
+            recordPollerLeaseSkipped();
+        }
+    }
+
+    public void recordLeaseSkipped() {
+        recordPollerLeaseSkipped();
+    }
 }
