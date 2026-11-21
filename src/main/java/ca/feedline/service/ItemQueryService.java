@@ -26,6 +26,12 @@ public class ItemQueryService {
 
     public ItemsPage list(Long source, String q, Instant from, Instant to, Instant fetchedFrom,
                           Instant fetchedTo, String cursor, int requestedSize) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new IllegalArgumentException("from must not be after to");
+        }
+        if (fetchedFrom != null && fetchedTo != null && fetchedFrom.isAfter(fetchedTo)) {
+            throw new IllegalArgumentException("fetchedFrom must not be after fetchedTo");
+        }
         int size = requestedSize <= 0 ? 20 : Math.min(requestedSize, 100);
         Cursor c = decodeCursor(cursor);
 
