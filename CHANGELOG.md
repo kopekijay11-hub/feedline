@@ -1,5 +1,14 @@
 # Changelog
 
+## M5 Phase 2 — Outbox relay batch/partition tuning, poison diagnostics & relay tests.
+- Added bounded `feed.outbox.*` binding through `FeedProperties.Outbox` with clamping for batch size, attempts, backoff, and send timeout
+- Relay claims publishable rows by `(next_attempt_at, id)` with `FOR UPDATE SKIP LOCKED`, keeping batches bounded by the configured limit
+- Kafka record key and `eventKey` header remain the deterministic `sourceId:guid`; retries and admin replays preserve topic, payload, and schema version
+- `V12__outbox_last_attempt_at.sql` adds `last_attempt_at` for attempt diagnostics
+- Poisoned-event listing now exposes `attempts`, `replayedCount`, `poisonedAt`, `lastAttemptAt`, `nextAttemptAt`, and a sanitized, 500-character-capped `lastError` with secrets redacted
+- Batch replay reports `skippedIds` and locks candidate rows with `FOR UPDATE SKIP LOCKED`
+- Added unit, concurrency, real-Kafka partition, and admin seam coverage (132 tests total)
+
 ## M5 Phase 1 — Outbox event schema, headers & deterministic eventKey.
 - Added schema/version identifiers, eventKey, eventType, occurredAt, and sourceId to outbox payloads and Kafka headers
 - Documented downstream consumer idempotency contract

@@ -21,6 +21,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -124,6 +125,74 @@ class OutboxRelayConcurrencyTest {
         assertThat(outboxEvents.findAll()).hasSize(4)
                 .allSatisfy(event -> assertThat(event.getPublishedAt()).isNotNull());
         assertThat(first.publishedCount() + second.publishedCount()).isEqualTo(4);
+    }
+
+    @Test
+    void singleRelayBatchIsBoundedByConfiguredBatchSize() {
+        for (int i = 1; i <= 5; i++) {
+            outboxEvents.saveAndFlush(new OutboxEvent((long) i, "topic", "bounded-" + i, "{}"));
+        }
+        KafkaTemplate<String, String> kafka = mock(KafkaTemplate.class);
+        when(kafka.send(org.mockito.ArgumentMatchers.any(ProducerRecord.class))).thenAnswer(invocation -> {
+            CompletableFuture<SendResult<String, String>> done = new CompletableFuture<>();
+            done.complete(null);
+            return done;
+        });
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        OutboxRelayService relay = new OutboxRelayService(outboxEvents, kafka, 2, 5, 10, 100, 5_000,
+                Clock.systemUTC());
+
+        tx.executeWithoutResult(status -> relay.publishPending());
+
+        assertThat(outboxEvents.findAll()).filteredOn(event -> event.getPublishedAt() != null).hasSize(2);
+        assertThat(outboxEvents.findAll()).filteredOn(event -> event.getPublishedAt() == null).hasSize(3);
+    }
+
+    @Test
+    void fourWorkersWithBatchSizeTwoPublishEveryRowExactlyOnce() throws Exception {
+        int rows = 8;
+        for (int i = 1; i <= rows; i++) {
+            outboxEvents.saveAndFlush(new OutboxEvent((long) i, "topic", "single-" + i, "{}"));
+        }
+        AtomicInteger sendCount = new AtomicInteger();
+        Set<String> sentKeys = ConcurrentHashMap.newKeySet();
+        KafkaTemplate<String, String> kafka = mock(KafkaTemplate.class);
+        when(kafka.send(org.mockito.ArgumentMatchers.any(ProducerRecord.class))).thenAnswer(invocation -> {
+            ProducerRecord<String, String> record = invocation.getArgument(0);
+            sentKeys.add(record.key());
+            sendCount.incrementAndGet();
+            CompletableFuture<SendResult<String, String>> done = new CompletableFuture<>();
+            done.complete(null);
+            return done;
+        });
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        List<OutboxRelayService> relays = new java.util.ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            relays.add(new OutboxRelayService(outboxEvents, kafka, 2, 5, 10, 100, 5_000, Clock.systemUTC()));
+        }
+        ExecutorService pool = Executors.newFixedThreadPool(4);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<?>> futures = new java.util.ArrayList<>();
+            for (OutboxRelayService relay : relays) {
+                futures.add(pool.submit(() -> {
+                    await(start);
+                    tx.executeWithoutResult(status -> relay.publishPending());
+                }));
+            }
+            start.countDown();
+            for (Future<?> future : futures) {
+                future.get(30, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(sendCount.get()).isEqualTo(rows);
+        assertThat(sentKeys).hasSize(rows);
+        assertThat(outboxEvents.findAll()).hasSize(rows)
+                .allSatisfy(event -> assertThat(event.getPublishedAt()).isNotNull());
     }
 
     private static void await(CountDownLatch latch) {

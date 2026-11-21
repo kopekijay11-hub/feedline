@@ -89,6 +89,9 @@ feed:
   content-freshness-threshold: 7d
 
   outbox:
+    # Relay scheduling and claim bounds. batch-size is clamped to 1..1000,
+    # max-attempts to 1..100, initial/max backoff to 1ms..1h, and send-timeout
+    # to 1ms..60s; out-of-range values are clamped at binding time.
     enabled: true
     topic: feedline.items.ingested
     poll-delay: 2000

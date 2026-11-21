@@ -124,3 +124,20 @@ Downstream consumers must dedupe by the Kafka message key / `eventKey` (e.g. `IN
 
 **Low cardinality**
 Logging and metric tags remain low-cardinality and never include raw payloads, GUIDs, URLs, or tokens.
+
+## M5 Phase 2 — Outbox Relay Batch/Partition Tuning & Poison Diagnostics
+
+**Bounded relay configuration**
+`feed.outbox.*` is now bound through `FeedProperties.Outbox` (`enabled`, `topic`, `poll-delay`, `batch-size`, `max-attempts`, `initial-backoff-ms`, `max-backoff-ms`, `send-timeout-ms`) in addition to the existing `@Value` call sites. Setters clamp batch size to `1..1000`, attempts to `1..100`, initial backoff to `1ms..600s`, max backoff to `1ms..1h` (never below the initial backoff), and send timeout to `1ms..60s`. `OutboxRelayService` applies the same clamps to its direct constructor so tests and programmatic callers cannot create an unbounded claim or a non-positive send wait. This keeps every relay batch bounded and predictable under burst load.
+
+**Claim ordering and lock duration**
+`findPublishable` still uses `FOR UPDATE SKIP LOCKED`, but now orders by `(next_attempt_at, id)`. That matches the existing partial index `idx_outbox_publishable (next_attempt_at, id)` and prevents an older but not-yet-due row from starving due retries behind newer rows. The batch limit is the configured, clamped batch size, so lock duration is bounded by one batch and the per-send timeout; the relay still stops at the first transient failure rather than holding the transaction open across an outage.
+
+**Partition key and header stability**
+The Kafka record key is the deterministic `eventKey` (`sourceId:guid`), and the same value is written to the `eventKey` header alongside `schemaVersion`, `eventType`, `occurredAt`, and `sourceId`. Retries and admin replays only mutate retry metadata; they never rewrite `topic`, `event_key`, or `payload`. Consequently a retried or replayed row hashes to the same partition and preserves per-key ordering. The real-Kafka test asserts `partition == murmur2(key) % partitions` on a three-partition topic.
+
+**Poison diagnostics without secret leakage**
+`V12__outbox_last_attempt_at.sql` adds a nullable `last_attempt_at` column, written by `OutboxEvent.recordFailure`. The admin poisoned-event DTO now exposes `attempts`, `replayedCount`, `poisonedAt`, `lastAttemptAt`, `nextAttemptAt`, and a sanitized `lastError`. `PoisonErrorSanitizer` removes stack-frame lines, redacts bearer/authorization credentials, key/value secrets (`api_key`, `password`, `token`, `secret`, ...), URL userinfo, and common token prefixes, collapses control characters, and caps the summary at 500 characters. Secrets and raw stack traces therefore cannot reach API clients.
+
+**Replay semantics and metrics**
+`replayBatch` clamps its limit to `1..500`, locks candidate rows with `FOR UPDATE SKIP LOCKED`, and reports rows that are no longer poisoned in `skippedIds`. Replay still resets `poisoned_at`, `published_at`, `attempts`, and `last_error`, increments `replayed_count`, and leaves `event_key`/`payload`/`schema_version` untouched. `feedline.outbox.events.total` keeps its fixed `outcome` tag set (`published`, `retry_scheduled`, `poisoned`, `replayed`); no exception text, URL, GUID, or token is used as a metric tag.

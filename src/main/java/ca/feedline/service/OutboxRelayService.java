@@ -1,5 +1,6 @@
 package ca.feedline.service;
 
+import ca.feedline.config.FeedProperties;
 import ca.feedline.domain.OutboxEvent;
 import ca.feedline.repository.OutboxEventRepository;
 import org.apache.kafka.common.errors.AuthenticationException;
@@ -13,7 +14,6 @@ import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -38,6 +38,18 @@ public class OutboxRelayService {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxRelayService.class);
 
+    static final int MIN_BATCH_SIZE = 1;
+    static final int MAX_BATCH_SIZE = 1000;
+    static final long MIN_BACKOFF_MS = 1L;
+    static final long MAX_BACKOFF_MS = 3_600_000L;
+    static final long MAX_SEND_TIMEOUT_MS = 60_000L;
+
+    private static final String HEADER_SCHEMA_VERSION = "schemaVersion";
+    private static final String HEADER_EVENT_KEY = "eventKey";
+    private static final String HEADER_EVENT_TYPE = "eventType";
+    private static final String HEADER_OCCURRED_AT = "occurredAt";
+    private static final String HEADER_SOURCE_ID = "sourceId";
+
     private final OutboxEventRepository outboxEvents;
     private final KafkaTemplate<String, String> kafka;
     private final int batchSize;
@@ -54,29 +66,41 @@ public class OutboxRelayService {
 
     @Autowired
     public OutboxRelayService(OutboxEventRepository outboxEvents, KafkaTemplate<String, String> kafka,
-                              @Value("${feed.outbox.batch-size:50}") int batchSize,
-                              @Value("${feed.outbox.max-attempts:5}") int maxAttempts,
-                              @Value("${feed.outbox.initial-backoff-ms:1000}") long initialBackoffMs,
-                              @Value("${feed.outbox.max-backoff-ms:60000}") long maxBackoffMs,
-                              @Value("${feed.outbox.send-timeout-ms:5000}") long sendTimeoutMs,
+                              FeedProperties feedProperties, Clock clock) {
+        this(outboxEvents, kafka, feedProperties.getOutbox(), clock, null);
+    }
+
+    public OutboxRelayService(OutboxEventRepository outboxEvents, KafkaTemplate<String, String> kafka,
+                              FeedProperties.Outbox settings, Clock clock, FeedlineMetrics metrics) {
+        this(outboxEvents, kafka, settings.getBatchSize(), settings.getMaxAttempts(),
+                settings.getInitialBackoffMs(), settings.getMaxBackoffMs(), settings.getSendTimeoutMs(),
+                clock, metrics);
+    }
+
+    public OutboxRelayService(OutboxEventRepository outboxEvents, KafkaTemplate<String, String> kafka,
+                              int batchSize,
+                              int maxAttempts,
+                              long initialBackoffMs,
+                              long maxBackoffMs,
+                              long sendTimeoutMs,
                               Clock clock) {
         this(outboxEvents, kafka, batchSize, maxAttempts, initialBackoffMs, maxBackoffMs, sendTimeoutMs, clock, null);
     }
 
     public OutboxRelayService(OutboxEventRepository outboxEvents, KafkaTemplate<String, String> kafka,
-                              @Value("${feed.outbox.batch-size:50}") int batchSize,
-                              @Value("${feed.outbox.max-attempts:5}") int maxAttempts,
-                              @Value("${feed.outbox.initial-backoff-ms:1000}") long initialBackoffMs,
-                              @Value("${feed.outbox.max-backoff-ms:60000}") long maxBackoffMs,
-                              @Value("${feed.outbox.send-timeout-ms:5000}") long sendTimeoutMs,
+                              int batchSize,
+                              int maxAttempts,
+                              long initialBackoffMs,
+                              long maxBackoffMs,
+                              long sendTimeoutMs,
                               Clock clock, FeedlineMetrics metrics) {
         this.outboxEvents = outboxEvents;
         this.kafka = kafka;
-        this.batchSize = batchSize;
-        this.maxAttempts = Math.max(1, maxAttempts);
-        this.initialBackoffMs = Math.max(1, initialBackoffMs);
-        this.maxBackoffMs = Math.max(this.initialBackoffMs, maxBackoffMs);
-        this.sendTimeoutMs = Math.max(1, sendTimeoutMs);
+        this.batchSize = Math.max(MIN_BATCH_SIZE, Math.min(batchSize, MAX_BATCH_SIZE));
+        this.maxAttempts = Math.max(1, Math.min(maxAttempts, 100));
+        this.initialBackoffMs = Math.max(MIN_BACKOFF_MS, Math.min(initialBackoffMs, MAX_BACKOFF_MS));
+        this.maxBackoffMs = Math.max(this.initialBackoffMs, Math.min(maxBackoffMs, MAX_BACKOFF_MS));
+        this.sendTimeoutMs = Math.max(MIN_BACKOFF_MS, Math.min(sendTimeoutMs, MAX_SEND_TIMEOUT_MS));
         this.clock = clock;
         this.metrics = metrics;
     }
@@ -96,21 +120,21 @@ public class OutboxRelayService {
         for (OutboxEvent event : pending) {
             try {
                 ProducerRecord<String, String> record = new ProducerRecord<>(
-                        event.getTopic(), event.getEventKey(), event.getPayload());
-                record.headers().add(new RecordHeader("schemaVersion",
+                        event.getTopic(), partitionKey(event), event.getPayload());
+                record.headers().add(new RecordHeader(HEADER_SCHEMA_VERSION,
                         String.valueOf(event.getSchemaVersion()).getBytes(StandardCharsets.UTF_8)));
-                record.headers().add(new RecordHeader("eventKey",
+                record.headers().add(new RecordHeader(HEADER_EVENT_KEY,
                         event.getEventKey().getBytes(StandardCharsets.UTF_8)));
-                record.headers().add(new RecordHeader("eventType",
+                record.headers().add(new RecordHeader(HEADER_EVENT_TYPE,
                         eventType(event).getBytes(StandardCharsets.UTF_8)));
                 Instant occurredAt = occurredAt(event);
                 if (occurredAt != null) {
-                    record.headers().add(new RecordHeader("occurredAt",
+                    record.headers().add(new RecordHeader(HEADER_OCCURRED_AT,
                             occurredAt.toString().getBytes(StandardCharsets.UTF_8)));
                 }
                 Long sourceId = sourceId(event);
                 if (sourceId != null) {
-                    record.headers().add(new RecordHeader("sourceId",
+                    record.headers().add(new RecordHeader(HEADER_SOURCE_ID,
                             sourceId.toString().getBytes(StandardCharsets.UTF_8)));
                 }
                 kafka.send(record).get(sendTimeoutMs, TimeUnit.MILLISECONDS);
@@ -184,6 +208,15 @@ public class OutboxRelayService {
         return "ItemIngested";
     }
 
+    /**
+     * Kafka partition key. The deterministic {@code sourceId:guid} value is used
+     * for both the record key and the {@code eventKey} header, so a retry or an
+     * admin replay of the same row lands on the same partition in the same order.
+     */
+    private static String partitionKey(OutboxEvent event) {
+        return event.getEventKey();
+    }
+
     @SuppressFBWarnings(value = "REC_CATCH_EXCEPTION", justification = "defensive JSON parsing")
     private Instant occurredAt(OutboxEvent event) {
         try {
@@ -215,10 +248,10 @@ public class OutboxRelayService {
         }
     }
 
-    @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(value = "REC_CATCH_EXCEPTION", justification = "defensive")
+    @SuppressFBWarnings(value = "REC_CATCH_EXCEPTION", justification = "defensive")
     private void recordFailure(OutboxEvent event, Exception failure) {
         Instant failedAt = clock.instant();
-        event.recordFailure(rootMessage(failure));
+        event.recordFailure(rootMessage(failure), failedAt);
         if (isPermanent(failure) || event.getAttempts() >= maxAttempts) {
             event.markPoisoned(failedAt);
             return;

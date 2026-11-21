@@ -12,6 +12,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.utils.Utils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Clock;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -113,23 +115,23 @@ class OutboxRelayRealKafkaConcurrencyTest {
         OutboxRelayService second = new OutboxRelayService(outboxEvents, kafkaTemplate, 4, 5, 10, 100, 5_000,
                 Clock.systemUTC());
 
-        CountDownLatch start = new CountDownLatch(1);
-        Future<?> firstWorker = workers.submit(() -> {
-            await(start);
-            tx.executeWithoutResult(status -> first.publishPending());
-        });
-        Future<?> secondWorker = workers.submit(() -> {
-            await(start);
-            tx.executeWithoutResult(status -> second.publishPending());
-        });
-        start.countDown();
-        firstWorker.get(60, TimeUnit.SECONDS);
-        secondWorker.get(60, TimeUnit.SECONDS);
+        try (KafkaConsumer<String, String> consumer = consumerAtEnd()) {
+            CountDownLatch start = new CountDownLatch(1);
+            Future<?> firstWorker = workers.submit(() -> {
+                await(start);
+                tx.executeWithoutResult(status -> first.publishPending());
+            });
+            Future<?> secondWorker = workers.submit(() -> {
+                await(start);
+                tx.executeWithoutResult(status -> second.publishPending());
+            });
+            start.countDown();
+            firstWorker.get(60, TimeUnit.SECONDS);
+            secondWorker.get(60, TimeUnit.SECONDS);
 
-        assertThat(outboxEvents.findAll()).hasSize(rows)
-                .allSatisfy(event -> assertThat(event.getPublishedAt()).isNotNull());
+            assertThat(outboxEvents.findAll()).hasSize(rows)
+                    .allSatisfy(event -> assertThat(event.getPublishedAt()).isNotNull());
 
-        try (KafkaConsumer<String, String> consumer = consumerAtBeginning()) {
             List<ConsumerRecord<String, String>> records = collect(consumer, rows);
             assertThat(records).hasSize(rows);
             Set<String> keys = new java.util.HashSet<>();
@@ -141,7 +143,31 @@ class OutboxRelayRealKafkaConcurrencyTest {
         }
     }
 
-    private KafkaConsumer<String, String> consumerAtBeginning() {
+    @Test
+    void publishedRecordsUseDeterministicKeyPartitioning() throws Exception {
+        int rows = 6;
+        for (int i = 1; i <= rows; i++) {
+            outboxEvents.saveAndFlush(new OutboxEvent((long) i, TOPIC, "partition-key-" + i, "{}"));
+        }
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        OutboxRelayService relay = new OutboxRelayService(outboxEvents, kafkaTemplate, rows, 5, 10, 100, 5_000,
+                Clock.systemUTC());
+
+        try (KafkaConsumer<String, String> consumer = consumerAtEnd()) {
+            tx.executeWithoutResult(status -> relay.publishPending());
+
+            List<ConsumerRecord<String, String>> records = collect(consumer, rows);
+            assertThat(records).hasSize(rows);
+            for (ConsumerRecord<String, String> record : records) {
+                int expected = Utils.toPositive(Utils.murmur2(record.key().getBytes(StandardCharsets.UTF_8))) % 3;
+                assertThat(record.partition())
+                        .as("key %s must hash to the same partition on every publish", record.key())
+                        .isEqualTo(expected);
+            }
+        }
+    }
+
+    private KafkaConsumer<String, String> consumerAtEnd() {
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(consumerProperties());
         consumer.subscribe(List.of(TOPIC));
         long deadline = System.currentTimeMillis() + 20_000;
@@ -149,8 +175,9 @@ class OutboxRelayRealKafkaConcurrencyTest {
             consumer.poll(java.time.Duration.ofMillis(200));
         }
         assertThat(consumer.assignment()).isNotEmpty();
+        java.util.Map<TopicPartition, Long> endOffsets = consumer.endOffsets(consumer.assignment());
         for (TopicPartition partition : consumer.assignment()) {
-            consumer.seek(partition, 0);
+            consumer.seek(partition, endOffsets.get(partition));
         }
         return consumer;
     }
@@ -179,7 +206,7 @@ class OutboxRelayRealKafkaConcurrencyTest {
         props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
         try (AdminClient admin = AdminClient.create(props)) {
             try {
-                admin.createTopics(List.of(new NewTopic(TOPIC, 1, (short) 1))).all().get(15, TimeUnit.SECONDS);
+                admin.createTopics(List.of(new NewTopic(TOPIC, 3, (short) 1))).all().get(15, TimeUnit.SECONDS);
             } catch (Exception e) {
                 if (!(e.getCause() instanceof TopicExistsException)) {
                     // ignore if already exists

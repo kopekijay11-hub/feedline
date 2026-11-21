@@ -115,6 +115,7 @@ class AdminOutboxSeamTest {
     @Test
     void listingAndPagination() throws Exception {
         OutboxEvent poisonedNewer = new OutboxEvent(1L, TOPIC, "poison-newer", "{}");
+        poisonedNewer.recordFailure("upstream 502 for source 1");
         poisonedNewer.markPoisoned(Instant.now());
         outboxEvents.saveAndFlush(poisonedNewer);
 
@@ -141,6 +142,14 @@ class AdminOutboxSeamTest {
         assertThat(json.get("items").get(0).get("eventKey").asText()).isEqualTo("poison-newer");
         assertThat(json.get("items").get(1).get("eventKey").asText()).isEqualTo("poison-older");
 
+        JsonNode diagnostics = json.get("items").get(0);
+        assertThat(diagnostics.get("attempts").asInt()).isEqualTo(1);
+        assertThat(diagnostics.get("replayedCount").asInt()).isZero();
+        assertThat(diagnostics.get("poisonedAt").isNull()).isFalse();
+        assertThat(diagnostics.get("lastAttemptAt").isNull()).isFalse();
+        assertThat(diagnostics.get("nextAttemptAt").isNull()).isFalse();
+        assertThat(diagnostics.get("lastError").asText()).contains("upstream 502");
+
         mockMvc.perform(get("/api/v1/admin/outbox/poisoned")
                         .header("X-Admin-Token", TOKEN)
                         .param("size", "0"))
@@ -158,6 +167,78 @@ class AdminOutboxSeamTest {
                         .param("foo", "bar"))
                 .andExpect(status().isBadRequest())
                 .andExpect(result -> assertThat(result.getResponse().getContentType()).contains("problem+json"));
+    }
+
+    @Test
+    void listingSanitizesSecretsStackFramesAndLength() throws Exception {
+        String raw = "upstream failed Bearer abcdef123456 api_key=topsecret password=hunter2 "
+                + "https://user:pw@example.test/hook\n"
+                + "    at com.example.KafkaClient.send(KafkaClient.java:42)\n"
+                + "    ... 5 more\n"
+                + "authorization=Basic dXNlcjpwYXNz";
+        OutboxEvent poisoned = new OutboxEvent(5L, TOPIC, "poison-secret", "{}");
+        poisoned.recordFailure(raw);
+        poisoned.markPoisoned(Instant.now());
+        outboxEvents.saveAndFlush(poisoned);
+
+        MvcResult res = mockMvc.perform(get("/api/v1/admin/outbox/poisoned")
+                        .header("X-Admin-Token", TOKEN)
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode json = mapper.readTree(res.getResponse().getContentAsString());
+        String lastError = json.get("items").get(0).get("lastError").asText();
+
+        assertThat(lastError)
+                .doesNotContain("abcdef123456", "topsecret", "hunter2", "user:pw", "dXNlcjpwYXNz")
+                .doesNotContain("\n", "\tat ")
+                .contains("[REDACTED]");
+        assertThat(lastError.length()).isLessThanOrEqualTo(500);
+    }
+
+    @Test
+    void batchReplayPreservesPayloadSchemaVersionAndCounters() throws Exception {
+        String payload = "{\"schemaVersion\":2,\"eventKey\":\"schema-1\",\"eventType\":\"ItemIngested\"}";
+        OutboxEvent first = new OutboxEvent(51L, TOPIC, "schema-1", payload);
+        first.setSchemaVersion(2);
+        first.recordFailure("first failure");
+        first.markPoisoned(Instant.now().minusSeconds(2));
+        first = outboxEvents.saveAndFlush(first);
+        OutboxEvent second = new OutboxEvent(52L, TOPIC, "schema-2", payload.replace("schema-1", "schema-2"));
+        second.setSchemaVersion(2);
+        second.recordFailure("second failure");
+        second.markPoisoned(Instant.now().minusSeconds(1));
+        second = outboxEvents.saveAndFlush(second);
+
+        MvcResult res = mockMvc.perform(post("/api/v1/admin/outbox/poisoned/replay-batch")
+                        .header("X-Admin-Token", TOKEN)
+                        .param("limit", "10"))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode json = mapper.readTree(res.getResponse().getContentAsString());
+        assertThat(json.get("replayedCount").asInt()).isEqualTo(2);
+        assertThat(json.get("replayedIds").size()).isEqualTo(2);
+        assertThat(json.get("skippedIds")).isEmpty();
+
+        OutboxEvent replayedFirst = outboxEvents.findById(first.getId()).orElseThrow();
+        OutboxEvent replayedSecond = outboxEvents.findById(second.getId()).orElseThrow();
+        assertThat(replayedFirst.getReplayedCount()).isEqualTo(1);
+        assertThat(replayedSecond.getReplayedCount()).isEqualTo(1);
+        assertThat(replayedFirst.getPayload()).isEqualTo(payload);
+        assertThat(replayedSecond.getPayload()).contains("schema-2");
+        assertThat(replayedFirst.getSchemaVersion()).isEqualTo(2);
+
+        try (KafkaConsumer<String, String> consumer = consumerAtEnd()) {
+            relay.publishPending();
+            List<ConsumerRecord<String, String>> records = collect(consumer, 2);
+            assertThat(records).extracting(ConsumerRecord::key)
+                    .containsExactlyInAnyOrder("schema-1", "schema-2");
+            for (ConsumerRecord<String, String> record : records) {
+                assertThat(record.headers().lastHeader("schemaVersion").value())
+                        .isEqualTo("2".getBytes(StandardCharsets.UTF_8));
+                assertThat(record.value()).contains("\"schemaVersion\":2");
+            }
+        }
     }
 
     @Test

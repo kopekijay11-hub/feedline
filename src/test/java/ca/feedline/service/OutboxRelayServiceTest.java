@@ -64,12 +64,80 @@ class OutboxRelayServiceTest {
 
         assertThat(first.getAttempts()).isEqualTo(1);
         assertThat(first.getLastError()).contains("broker down");
+        assertThat(first.getLastAttemptAt()).isEqualTo(NOW);
         assertThat(first.getNextAttemptAt()).isEqualTo(NOW.plusMillis(1000));
         assertThat(first.getPublishedAt()).isNull();
         assertThat(first.getPoisonedAt()).isNull();
         assertThat(second.getAttempts()).isZero();
         assertThat(second.getPublishedAt()).isNull();
         verify(kafka, times(1)).send(any(ProducerRecord.class));
+    }
+
+    @Test
+    void batchSizeIsClampedToBoundedRange() {
+        OutboxRelayService lower = new OutboxRelayService(repository, kafka, 0, 5, 1000, 10_000, 1000,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        OutboxRelayService upper = new OutboxRelayService(repository, kafka, 10_000, 5, 1000, 10_000, 1000,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        when(repository.findPublishable(1, NOW)).thenReturn(List.of());
+        when(repository.findPublishable(1000, NOW)).thenReturn(List.of());
+
+        lower.publishPending();
+        upper.publishPending();
+
+        verify(repository).findPublishable(1, NOW);
+        verify(repository).findPublishable(1000, NOW);
+    }
+
+    @Test
+    void transientFailuresBackoffExponentiallyAndStopAtMaxBackoff() {
+        OutboxRelayService capped = new OutboxRelayService(repository, kafka, 10, 10, 1000, 5000, 1000,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        OutboxEvent event = event(1L, "topic-a", "key-1");
+        when(repository.findPublishable(10, NOW)).thenReturn(List.of(event));
+        CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
+        failed.completeExceptionally(new TimeoutException("broker down"));
+        when(kafka.send(any(ProducerRecord.class))).thenReturn(failed);
+
+        capped.publishPending();
+        assertThat(event.getNextAttemptAt()).isEqualTo(NOW.plusMillis(1000));
+        capped.publishPending();
+        assertThat(event.getNextAttemptAt()).isEqualTo(NOW.plusMillis(2000));
+        capped.publishPending();
+        assertThat(event.getNextAttemptAt()).isEqualTo(NOW.plusMillis(4000));
+        capped.publishPending();
+        assertThat(event.getNextAttemptAt()).isEqualTo(NOW.plusMillis(5000));
+        capped.publishPending();
+        assertThat(event.getNextAttemptAt()).isEqualTo(NOW.plusMillis(5000));
+        assertThat(event.getAttempts()).isEqualTo(5);
+        assertThat(event.getLastAttemptAt()).isEqualTo(NOW);
+        assertThat(event.getPoisonedAt()).isNull();
+    }
+
+    @Test
+    void retryAfterTransientFailurePreservesKeyAndHeaders() {
+        OutboxEvent event = event(1L, "topic-a", "42:retry-1");
+        event.setPayload("{\"eventKey\":\"42:retry-1\",\"schemaVersion\":1}");
+        when(repository.findPublishable(10, NOW)).thenReturn(List.of(event));
+        List<ProducerRecord<String, String>> captured = new java.util.ArrayList<>();
+        CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
+        failed.completeExceptionally(new TimeoutException("broker down"));
+        CompletableFuture<SendResult<String, String>> sent = new CompletableFuture<>();
+        sent.complete(null);
+        when(kafka.send(any(ProducerRecord.class))).thenAnswer(invocation -> {
+            ProducerRecord<String, String> record = invocation.getArgument(0);
+            captured.add(record);
+            return captured.size() == 1 ? failed : sent;
+        });
+
+        relay.publishPending();
+        relay.publishPending();
+
+        assertThat(captured).hasSize(2);
+        assertThat(captured.get(1).key()).isEqualTo("42:retry-1");
+        assertThat(captured.get(1).key()).isEqualTo(captured.get(0).key());
+        assertThat(headerMap(captured.get(1))).isEqualTo(headerMap(captured.get(0)));
+        assertThat(event.getPublishedAt()).isEqualTo(NOW);
     }
 
     @Test
