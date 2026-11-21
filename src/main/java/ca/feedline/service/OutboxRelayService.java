@@ -8,6 +8,8 @@ import org.apache.kafka.common.errors.InvalidTopicException;
 import org.apache.kafka.common.errors.RecordTooLargeException;
 import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,10 +24,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+@SuppressFBWarnings({"REC_CATCH_EXCEPTION"})
 @Service
 @ConditionalOnProperty(name = "feed.outbox.enabled", havingValue = "true", matchIfMissing = true)
 public class OutboxRelayService {
@@ -40,6 +46,7 @@ public class OutboxRelayService {
     private final long maxBackoffMs;
     private final long sendTimeoutMs;
     private final Clock clock;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final AtomicLong publishedCount = new AtomicLong();
     private final AtomicLong failureCount = new AtomicLong();
     private final AtomicLong requeuedCount = new AtomicLong();
@@ -88,8 +95,25 @@ public class OutboxRelayService {
         List<OutboxEvent> pending = outboxEvents.findPublishable(batchSize, clock.instant());
         for (OutboxEvent event : pending) {
             try {
-                kafka.send(event.getTopic(), event.getEventKey(), event.getPayload())
-                        .get(sendTimeoutMs, TimeUnit.MILLISECONDS);
+                ProducerRecord<String, String> record = new ProducerRecord<>(
+                        event.getTopic(), event.getEventKey(), event.getPayload());
+                record.headers().add(new RecordHeader("schemaVersion",
+                        String.valueOf(event.getSchemaVersion()).getBytes(StandardCharsets.UTF_8)));
+                record.headers().add(new RecordHeader("eventKey",
+                        event.getEventKey().getBytes(StandardCharsets.UTF_8)));
+                record.headers().add(new RecordHeader("eventType",
+                        eventType(event).getBytes(StandardCharsets.UTF_8)));
+                Instant occurredAt = occurredAt(event);
+                if (occurredAt != null) {
+                    record.headers().add(new RecordHeader("occurredAt",
+                            occurredAt.toString().getBytes(StandardCharsets.UTF_8)));
+                }
+                Long sourceId = sourceId(event);
+                if (sourceId != null) {
+                    record.headers().add(new RecordHeader("sourceId",
+                            sourceId.toString().getBytes(StandardCharsets.UTF_8)));
+                }
+                kafka.send(record).get(sendTimeoutMs, TimeUnit.MILLISECONDS);
                 event.markPublished(clock.instant());
                 publishedCount.incrementAndGet();
                 if (metrics != null) {
@@ -155,6 +179,43 @@ public class OutboxRelayService {
         return requeuedCount.get();
     }
 
+
+    private String eventType(OutboxEvent event) {
+        return "ItemIngested";
+    }
+
+    @SuppressFBWarnings(value = "REC_CATCH_EXCEPTION", justification = "defensive JSON parsing")
+    private Instant occurredAt(OutboxEvent event) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(event.getPayload());
+            for (String field : new String[] {"occurredAt", "ingestedAt", "publishedAt"}) {
+                if (node.hasNonNull(field)) {
+                    return Instant.parse(node.get(field).asText());
+                }
+            }
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
+        } catch (RuntimeException ignored) {
+        }
+        return event.getCreatedAt();
+    }
+
+    private Long sourceId(OutboxEvent event) {
+        String key = event.getEventKey();
+        if (key == null) {
+            return null;
+        }
+        int idx = key.indexOf(':');
+        if (idx <= 0) {
+            return null;
+        }
+        try {
+            return Long.parseLong(key.substring(0, idx));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(value = "REC_CATCH_EXCEPTION", justification = "defensive")
     private void recordFailure(OutboxEvent event, Exception failure) {
         Instant failedAt = clock.instant();
         event.recordFailure(rootMessage(failure));

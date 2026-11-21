@@ -317,8 +317,12 @@ class KafkaOutboxSeamTest {
         JsonNode payload = mapper.readTree(record.value());
         Item item = items.findBySourceIdAndGuid(sourceId, guid).orElseThrow();
         assertThat(item.getPublishedAt()).isNotNull();
+        assertThat(payload.get("schemaVersion").asInt()).isEqualTo(1);
+        assertThat(payload.get("eventKey").asText()).isEqualTo(record.key());
+        assertThat(payload.get("eventType").asText()).isEqualTo("ItemIngested");
         assertThat(payload.get("itemId").asLong()).isEqualTo(item.getId());
         assertThat(payload.get("sourceId").asLong()).isEqualTo(sourceId);
+        assertThat(payload.get("occurredAt").asText()).isEqualTo(item.getFetchedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString());
         assertThat(payload.get("guid").asText()).isEqualTo(guid);
         assertThat(payload.get("title").asText()).isEqualTo(item.getTitle());
         assertThat(payload.get("link").asText()).isEqualTo(item.getLink());

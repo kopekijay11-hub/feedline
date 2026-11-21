@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -86,8 +87,9 @@ class OutboxRelayConcurrencyTest {
         Set<String> sentKeys = ConcurrentHashMap.newKeySet();
         AtomicInteger sendCount = new AtomicInteger();
         KafkaTemplate<String, String> kafka = mock(KafkaTemplate.class);
-        when(kafka.send(anyString(), anyString(), anyString())).thenAnswer(invocation -> {
-            sentKeys.add(invocation.getArgument(1));
+        when(kafka.send(org.mockito.ArgumentMatchers.any(ProducerRecord.class))).thenAnswer(invocation -> {
+            ProducerRecord<String, String> record = invocation.getArgument(0);
+            sentKeys.add(record.key());
             sendCount.incrementAndGet();
             sendsRendezvous.countDown();
             assertThat(sendsRendezvous.await(10, TimeUnit.SECONDS))
