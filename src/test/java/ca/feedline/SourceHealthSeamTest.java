@@ -72,6 +72,20 @@ class SourceHealthSeamTest {
                         try (OutputStream os = exchange.getResponseBody()) { os.write(b); }
                         return;
                     }
+                    if ("ratelimited".equals(m)) {
+                        byte[] b = "slow down".getBytes(StandardCharsets.UTF_8);
+                        exchange.getResponseHeaders().set("Retry-After", "2");
+                        exchange.sendResponseHeaders(429, b.length);
+                        try (OutputStream os = exchange.getResponseBody()) { os.write(b); }
+                        return;
+                    }
+                    if ("unavailable".equals(m)) {
+                        byte[] b = "try later".getBytes(StandardCharsets.UTF_8);
+                        exchange.getResponseHeaders().set("Retry-After", "1");
+                        exchange.sendResponseHeaders(503, b.length);
+                        try (OutputStream os = exchange.getResponseBody()) { os.write(b); }
+                        return;
+                    }
                     if ("notmodified".equals(m)) {
                         exchange.sendResponseHeaders(304, -1);
                         return;
@@ -330,5 +344,81 @@ class SourceHealthSeamTest {
                 .andReturn();
         String json = res.getResponse().getContentAsString();
         assertThat(json).contains("UP");
+    }
+
+    @Test
+    void rateLimitedPollRecordsBackoffStateAndRetryHint() throws Exception {
+        mode.set("ratelimited");
+        poller.pollOnce();
+
+        MvcResult res = mockMvc.perform(get("/api/v1/sources/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourcesStatus").value("DEGRADED"))
+                .andReturn();
+        String json = res.getResponse().getContentAsString();
+        assertThat(json).contains("BACKOFF");
+        assertThat(json).contains("HTTP_429");
+        assertThat(json).contains("\"consecutiveFailures\":1");
+        assertThat(json).contains("\"nextPollAt\"");
+
+        ca.feedline.domain.FeedSource stored = sources.findAll().get(0);
+        assertThat(stored.getNextPollAt()).isAfter(Instant.now());
+        assertThat(stored.getLastErrorAt()).isNotNull();
+    }
+
+    @Test
+    void cleanPollAfterBackoffResetsFailureAndBackoffState() throws Exception {
+        mode.set("unavailable");
+        poller.pollOnce();
+        ca.feedline.domain.FeedSource stored = sources.findAll().get(0);
+        assertThat(stored.getConsecutiveFailures()).isEqualTo(1);
+        assertThat(stored.getNextPollAt()).isNotNull();
+        assertThat(stored.getLastErrorClass()).isEqualTo("HTTP_503");
+
+        mode.set("ok");
+        stored.setNextPollAt(null);
+        sources.save(stored);
+        poller.pollSingleSource(stored);
+
+        ca.feedline.domain.FeedSource recovered = sources.findById(stored.getId()).orElseThrow();
+        assertThat(recovered.getConsecutiveFailures()).isZero();
+        assertThat(recovered.getNextPollAt()).isNull();
+        assertThat(recovered.getLastError()).isNull();
+        assertThat(recovered.getLastErrorAt()).isNull();
+        assertThat(recovered.getLastSuccessAt()).isNotNull();
+    }
+
+    @Test
+    void healthLastErrorIsSanitizedBeforeLeavingApi() throws Exception {
+        ca.feedline.domain.FeedSource source = sources.findAll().get(0);
+        source.setLastErrorClass("HTTP_500");
+        source.setLastErrorAt(Instant.now());
+        source.setLastError("upstream token=super-secret-value and api_key=another-secret");
+        source.setConsecutiveFailures(2);
+        sources.save(source);
+
+        MvcResult res = mockMvc.perform(get("/api/v1/sources/health/{sourceId}", source.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastError").exists())
+                .andReturn();
+        String json = res.getResponse().getContentAsString();
+        assertThat(json).doesNotContain("super-secret-value");
+        assertThat(json).doesNotContain("another-secret");
+        assertThat(json).contains("[REDACTED]");
+    }
+
+    @Test
+    void gracefulShutdownReleasesOwnedLeasesAndStopsClaiming() {
+        ca.feedline.domain.FeedSource source = sources.findAll().get(0);
+        source.setLeaseOwner(poller.getWorkerId());
+        source.setLeaseUntil(Instant.now().plusSeconds(300));
+        sources.save(source);
+
+        poller.shutdown();
+
+        ca.feedline.domain.FeedSource reloaded = sources.findById(source.getId()).orElseThrow();
+        assertThat(reloaded.getLeaseOwner()).isNull();
+        assertThat(reloaded.getLeaseUntil()).isNull();
+        assertThat(poller.claimDueSources()).isEmpty();
     }
 }

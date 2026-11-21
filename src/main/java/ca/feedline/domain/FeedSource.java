@@ -52,11 +52,20 @@ public class FeedSource {
     @Column(name = "last_error_class", length = 64)
     private String lastErrorClass;
 
+    @Column(name = "last_error_at")
+    private Instant lastErrorAt;
+
+    @Column(name = "last_error", columnDefinition = "TEXT")
+    private String lastError;
+
     @Column(name = "consecutive_failures", nullable = false)
     private int consecutiveFailures = 0;
 
     @Column(name = "last_new_item_at")
     private Instant lastNewItemAt;
+
+    @Column(name = "next_poll_at")
+    private Instant nextPollAt;
 
     @Column(name = "lease_owner", length = 128)
     private String leaseOwner;
@@ -144,6 +153,22 @@ public class FeedSource {
         this.lastErrorClass = lastErrorClass;
     }
 
+    public Instant getLastErrorAt() {
+        return lastErrorAt;
+    }
+
+    public void setLastErrorAt(Instant lastErrorAt) {
+        this.lastErrorAt = lastErrorAt;
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
+    public void setLastError(String lastError) {
+        this.lastError = lastError;
+    }
+
     public int getConsecutiveFailures() {
         return consecutiveFailures;
     }
@@ -158,6 +183,18 @@ public class FeedSource {
 
     public void setLastNewItemAt(Instant lastNewItemAt) {
         this.lastNewItemAt = lastNewItemAt;
+    }
+
+    public Instant getNextPollAt() {
+        return nextPollAt;
+    }
+
+    public void setNextPollAt(Instant nextPollAt) {
+        this.nextPollAt = nextPollAt;
+    }
+
+    public boolean isBackoffActive(Instant now) {
+        return enabled && nextPollAt != null && nextPollAt.isAfter(now);
     }
 
     public String getLeaseOwner() {

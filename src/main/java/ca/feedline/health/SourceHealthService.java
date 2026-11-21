@@ -5,11 +5,16 @@ import ca.feedline.domain.FeedSource;
 import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.IngestSkipRepository;
 import ca.feedline.service.FeedPollerService;
+import ca.feedline.service.FeedlineMetrics;
+import ca.feedline.service.PoisonErrorSanitizer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -19,6 +24,7 @@ public class SourceHealthService {
     private final IngestSkipRepository skips;
     private final FeedPollerService poller;
     private final FeedProperties config;
+    private FeedlineMetrics metrics;
 
     public SourceHealthService(FeedSourceRepository sources, IngestSkipRepository skips,
                                FeedPollerService poller, FeedProperties config) {
@@ -26,6 +32,13 @@ public class SourceHealthService {
         this.skips = skips;
         this.poller = poller;
         this.config = config;
+    }
+
+    @Autowired(required = false)
+    public void setMetrics(FeedlineMetrics metrics) {
+        if (metrics != null) {
+            this.metrics = metrics;
+        }
     }
 
     public boolean schedulingEnabled() {
@@ -81,13 +94,20 @@ public class SourceHealthService {
         Instant lastAttempt = source.getLastAttemptAt();
         Instant lastSuccess = source.getLastSuccessAt();
         String state;
-        if (lastAttempt == null) {
+        boolean backoff = false;
+        if (!source.isEnabled()) {
+            state = "DISABLED";
+        } else if (lastAttempt == null) {
             state = "UNKNOWN";
         } else {
             boolean lastAttemptFailed = source.getLastErrorClass() != null;
             boolean stale = lastSuccess == null
                     || Duration.between(lastSuccess, now).compareTo(interval.multipliedBy(2)) > 0;
-            if (lastAttemptFailed || stale) {
+            boolean rateLimited = isBackoffClass(source.getLastErrorClass());
+            backoff = rateLimited && source.getNextPollAt() != null && source.getNextPollAt().isAfter(now);
+            if (backoff) {
+                state = "BACKOFF";
+            } else if (lastAttemptFailed || stale) {
                 state = "DEGRADED";
             } else {
                 state = "UP";
@@ -102,6 +122,10 @@ public class SourceHealthService {
                 lastAttempt,
                 lastSuccess,
                 source.getLastErrorClass(),
+                source.getLastErrorAt(),
+                PoisonErrorSanitizer.sanitize(source.getLastError()),
+                source.getNextPollAt(),
+                backoff,
                 source.getConsecutiveFailures(),
                 validatorsPresent,
                 secondsSince,
@@ -113,16 +137,53 @@ public class SourceHealthService {
         );
     }
 
+    private static boolean isBackoffClass(String errorClass) {
+        return "HTTP_429".equals(errorClass)
+                || "HTTP_503".equals(errorClass)
+                || "RATE_LIMITED".equals(errorClass);
+    }
+
     public SourcesHealth aggregate() {
         Duration interval = pollInterval();
         List<SourceHealthDetail> details = sources.findAll().stream()
                 .map(this::healthFor).toList();
         Instant heartbeat = lastCompletedPollCycle();
         boolean heartbeatStale = heartbeatStale();
-        boolean anyDegraded = details.stream().anyMatch(d -> "DEGRADED".equals(d.state()));
+        boolean anyDegraded = details.stream()
+                .anyMatch(d -> "DEGRADED".equals(d.state()) || "BACKOFF".equals(d.state()));
         String sourcesStatus = (!heartbeatStale && !anyDegraded) ? "UP" : "DEGRADED";
+        updateMetrics(details);
         return new SourcesHealth(sourcesStatus, sourcesStatus, heartbeat, heartbeatStale,
                 interval.toSeconds(), details);
+    }
+
+    private void updateMetrics(List<SourceHealthDetail> details) {
+        if (metrics == null) {
+            return;
+        }
+        Map<String, Long> counts = new LinkedHashMap<>();
+        long active = 0L;
+        for (SourceHealthDetail detail : details) {
+            String state = metricState(detail.state());
+            counts.merge(state, 1L, Long::sum);
+            if (!"DISABLED".equals(detail.state())) {
+                active++;
+            }
+        }
+        metrics.updateSourceHealth(counts, active);
+    }
+
+    private static String metricState(String state) {
+        if (state == null) {
+            return "unknown";
+        }
+        return switch (state) {
+            case "UP" -> "healthy";
+            case "DEGRADED" -> "degraded";
+            case "BACKOFF" -> "backoff";
+            case "DISABLED" -> "disabled";
+            default -> "unknown";
+        };
     }
 
     public Optional<SourceHealthDetail> findById(Long id) {

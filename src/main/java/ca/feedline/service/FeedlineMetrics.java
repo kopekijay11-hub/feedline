@@ -11,7 +11,10 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -25,6 +28,11 @@ public class FeedlineMetrics {
     private final AtomicLong pendingCount = new AtomicLong();
     private final AtomicLong poisonedCount = new AtomicLong();
     private final AtomicLong oldestPendingAgeSeconds = new AtomicLong();
+    private final AtomicLong activeSourceCount = new AtomicLong();
+    private final Map<String, AtomicLong> sourceHealthCounts = new ConcurrentHashMap<>();
+
+    private static final List<String> SOURCE_HEALTH_STATES =
+            List.of("healthy", "degraded", "backoff", "disabled", "unknown");
 
     public FeedlineMetrics(MeterRegistry registry) {
         this(registry, null, Clock.systemUTC());
@@ -68,6 +76,15 @@ public class FeedlineMetrics {
             Gauge.builder("feedline.outbox.poisoned.count", poisonedCount, a -> (double) a.get())
                     .register(registry);
             Gauge.builder("feedline.outbox.oldest.pending.age.seconds", oldestPendingAgeSeconds, a -> (double) a.get())
+                    .register(registry);
+        }
+        Gauge.builder("feedline.sources.active.count", activeSourceCount, a -> (double) a.get())
+                .register(registry);
+        for (String state : SOURCE_HEALTH_STATES) {
+            AtomicLong value = new AtomicLong();
+            sourceHealthCounts.put(state, value);
+            Gauge.builder("feedline.sources.health", value, AtomicLong::get)
+                    .tag("state", state)
                     .register(registry);
         }
     }
@@ -222,5 +239,68 @@ public class FeedlineMetrics {
 
     public void recordLeaseSkipped() {
         recordPollerLeaseSkipped();
+    }
+
+    /**
+     * Record one source poll outcome. Only the fixed low-cardinality set
+     * {@code success}, {@code not_modified}, {@code rate_limited}, {@code error}
+     * is accepted; unknown values are bucketed as {@code error}.
+     */
+    public void recordPollOutcome(String outcome) {
+        String normalized = switch (outcome == null ? "" : outcome) {
+            case "success", "not_modified", "rate_limited" -> outcome;
+            default -> "error";
+        };
+        registry.counter("feedline.poller.poll.total", "outcome", normalized).increment();
+    }
+
+    public void recordPollSuccess() {
+        recordPollOutcome("success");
+    }
+
+    public void recordPollNotModified() {
+        recordPollOutcome("not_modified");
+    }
+
+    public void recordPollRateLimited() {
+        recordPollOutcome("rate_limited");
+    }
+
+    public void recordPollError() {
+        recordPollOutcome("error");
+    }
+
+    /**
+     * Update the source-health gauges from the latest aggregate. State tags are
+     * restricted to the fixed set registered in the constructor.
+     */
+    public void updateSourceHealth(Map<String, Long> counts, long activeSources) {
+        activeSourceCount.set(Math.max(0L, activeSources));
+        for (String state : SOURCE_HEALTH_STATES) {
+            AtomicLong value = sourceHealthCounts.get(state);
+            if (value != null) {
+                long count = counts == null ? 0L : counts.getOrDefault(state, 0L);
+                value.set(Math.max(0L, count));
+            }
+        }
+    }
+
+    public void recordShutdownLeaseRelease(int released) {
+        if (released > 0) {
+            registry.counter("feedline.poller.leases.released.total").increment(released);
+        }
+        registry.counter("feedline.shutdown.total", "outcome", "lease_released").increment();
+    }
+
+    public void recordShutdownLeaseReleaseFailed() {
+        registry.counter("feedline.shutdown.total", "outcome", "lease_release_failed").increment();
+    }
+
+    public void recordShutdown(String outcome) {
+        String normalized = switch (outcome == null ? "" : outcome) {
+            case "relay_stopped", "cleanup_stopped", "completed" -> outcome;
+            default -> "completed";
+        };
+        registry.counter("feedline.shutdown.total", "outcome", normalized).increment();
     }
 }

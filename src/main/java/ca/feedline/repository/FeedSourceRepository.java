@@ -23,6 +23,7 @@ public interface FeedSourceRepository extends JpaRepository<FeedSource, Long> {
             SELECT * FROM feed_sources
             WHERE enabled = true
               AND (lease_until IS NULL OR lease_until <= :now)
+              AND (next_poll_at IS NULL OR next_poll_at <= :now)
               AND (last_attempt_at IS NULL OR last_attempt_at <= :now)
             ORDER BY last_attempt_at NULLS FIRST, id
             LIMIT :limit
@@ -44,6 +45,7 @@ public interface FeedSourceRepository extends JpaRepository<FeedSource, Long> {
                 SELECT id FROM feed_sources
                 WHERE enabled = true
                   AND (lease_until IS NULL OR lease_until <= :now)
+                  AND (next_poll_at IS NULL OR next_poll_at <= :now)
                   AND (last_attempt_at IS NULL OR last_attempt_at <= :now)
                 ORDER BY last_attempt_at NULLS FIRST, id
                 LIMIT :limit
@@ -77,4 +79,13 @@ public interface FeedSourceRepository extends JpaRepository<FeedSource, Long> {
     @Transactional
     @Query(value = "UPDATE feed_sources SET lease_owner = NULL, lease_until = NULL WHERE id = :id AND lease_owner = :owner", nativeQuery = true)
     int releaseLease(@Param("id") Long id, @Param("owner") String owner);
+
+    /**
+     * Release every lease held by this worker. Used by the graceful shutdown
+     * hook so a clean exit does not strand sources until lease expiry.
+     */
+    @Modifying
+    @Transactional
+    @Query(value = "UPDATE feed_sources SET lease_owner = NULL, lease_until = NULL WHERE lease_owner = :owner", nativeQuery = true)
+    int releaseAllLeasesOwnedBy(@Param("owner") String owner);
 }

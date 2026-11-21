@@ -413,6 +413,9 @@ public class FeedProperties {
     public static class Poller {
         private Duration leaseDuration = Duration.ofMinutes(2);
         private String workerId = "";
+        private Duration backoffBase = Duration.ofSeconds(30);
+        private Duration maxBackoff = Duration.ofHours(1);
+        private Duration shutdownTimeout = Duration.ofSeconds(10);
 
         public Duration getLeaseDuration() {
             return leaseDuration;
@@ -428,6 +431,44 @@ public class FeedProperties {
 
         public void setWorkerId(String workerId) {
             this.workerId = workerId == null ? "" : workerId;
+        }
+
+        /**
+         * Base delay for the first consecutive failure. The delay doubles per
+         * consecutive failure up to {@link #maxBackoff}. A server-provided
+         * {@code Retry-After} is honoured when it is larger, still capped at
+         * {@link #maxBackoff}.
+         */
+        public Duration getBackoffBase() {
+            return backoffBase;
+        }
+
+        public void setBackoffBase(Duration backoffBase) {
+            this.backoffBase = backoffBase == null || backoffBase.isNegative() || backoffBase.isZero()
+                    ? Duration.ofSeconds(30) : backoffBase;
+        }
+
+        public Duration getMaxBackoff() {
+            return maxBackoff;
+        }
+
+        public void setMaxBackoff(Duration maxBackoff) {
+            Duration candidate = maxBackoff == null || maxBackoff.isNegative() || maxBackoff.isZero()
+                    ? Duration.ofHours(1) : maxBackoff;
+            this.maxBackoff = candidate.compareTo(this.backoffBase) < 0 ? this.backoffBase : candidate;
+        }
+
+        /**
+         * Upper bound on how long {@link ca.feedline.service.FeedPollerService}
+         * waits for an in-flight poll cycle before releasing leases on shutdown.
+         */
+        public Duration getShutdownTimeout() {
+            return shutdownTimeout;
+        }
+
+        public void setShutdownTimeout(Duration shutdownTimeout) {
+            this.shutdownTimeout = shutdownTimeout == null || shutdownTimeout.isNegative() || shutdownTimeout.isZero()
+                    ? Duration.ofSeconds(10) : shutdownTimeout;
         }
     }
 
