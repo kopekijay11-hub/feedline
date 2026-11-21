@@ -2,6 +2,16 @@ spring:
   application:
     name: feedline
 
+  lifecycle:
+    # Bounded window for in-flight poll/outbox work during graceful shutdown.
+    timeout-per-shutdown-phase: 30s
+
+  task:
+    scheduling:
+      shutdown:
+        await-termination: true
+        await-termination-period: 30s
+
   datasource:
     url: jdbc:postgresql://localhost:5432/feedline
     username: feedline
@@ -52,6 +62,11 @@ management:
   health:
     sources:
       enabled: false
+
+server:
+  # Let in-flight web requests finish; the poller/relay have their own bounded
+  # shutdown hooks in addition to this.
+  shutdown: graceful
 
 feed:
   # Project URL for User-Agent header: Feedline/0.1 (+<feedline.user-agent-url>)
@@ -114,6 +129,12 @@ feed:
   poller:
     lease-duration: 2m
     worker-id: ""
+    # Exponential source backoff: 30s, 60s, 120s, ... capped at 1h. An upstream
+    # Retry-After (bounded to 1h) is honoured when larger.
+    backoff-base: 30s
+    max-backoff: 1h
+    # Upper bound on waiting for an in-flight poll cycle during graceful shutdown.
+    shutdown-timeout: 10s
 
   robots:
     cache-max-entries: 256

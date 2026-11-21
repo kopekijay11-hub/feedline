@@ -7,6 +7,7 @@ import ca.feedline.repository.FeedSourceRepository;
 import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.io.SyndFeedInput;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,6 +24,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Polls multiple configured feeds on a fixed delay.
@@ -43,6 +46,12 @@ public class FeedPollerService {
 
     private final String workerId;
     private final Duration leaseDuration;
+    private final Duration backoffBase;
+    private final Duration maxBackoff;
+    private final Duration shutdownTimeout;
+
+    private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
+    private final AtomicInteger inFlightCycles = new AtomicInteger();
 
     private volatile Instant lastCompletedPollCycle = null;
 
@@ -79,6 +88,21 @@ public class FeedPollerService {
         } else {
             this.leaseDuration = Duration.ofMinutes(2);
         }
+        if (config != null && config.getPoller() != null && config.getPoller().getBackoffBase() != null) {
+            this.backoffBase = config.getPoller().getBackoffBase();
+        } else {
+            this.backoffBase = Duration.ofSeconds(30);
+        }
+        if (config != null && config.getPoller() != null && config.getPoller().getMaxBackoff() != null) {
+            this.maxBackoff = config.getPoller().getMaxBackoff();
+        } else {
+            this.maxBackoff = Duration.ofHours(1);
+        }
+        if (config != null && config.getPoller() != null && config.getPoller().getShutdownTimeout() != null) {
+            this.shutdownTimeout = config.getPoller().getShutdownTimeout();
+        } else {
+            this.shutdownTimeout = Duration.ofSeconds(10);
+        }
     }
 
     @Autowired(required = false)
@@ -101,8 +125,57 @@ public class FeedPollerService {
         return leaseDuration;
     }
 
+    public boolean isShuttingDown() {
+        return shuttingDown.get();
+    }
+
+    /**
+     * Graceful shutdown hook. Stops claiming new sources, waits a bounded window
+     * for an in-flight poll cycle, then releases every lease owned by this
+     * worker so a clean exit does not strand sources until lease expiry.
+     */
+    @PreDestroy
+    public void shutdown() {
+        shuttingDown.set(true);
+        awaitInFlightCycles();
+        int released;
+        try {
+            released = feedSources.releaseAllLeasesOwnedBy(workerId);
+        } catch (RuntimeException ex) {
+            log.warn("Failed to release leases owned by {} on shutdown: {}", workerId, ex.getMessage());
+            if (metrics != null) {
+                metrics.recordShutdownLeaseReleaseFailed();
+            }
+            return;
+        }
+        log.info("Released {} source lease(s) owned by {} on shutdown", released, workerId);
+        if (metrics != null) {
+            metrics.recordShutdownLeaseRelease(released);
+            metrics.recordShutdown("completed");
+        }
+    }
+
+    private void awaitInFlightCycles() {
+        long deadline = System.nanoTime() + shutdownTimeout.toNanos();
+        while (inFlightCycles.get() > 0 && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(25L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        if (inFlightCycles.get() > 0) {
+            log.warn("Poller shutdown timed out with {} in-flight cycle(s)", inFlightCycles.get());
+        }
+    }
+
     @Scheduled(fixedDelayString = "${feed.poll-delay:60s}")
     public void pollOnce() {
+        if (shuttingDown.get()) {
+            return;
+        }
+        inFlightCycles.incrementAndGet();
         long started = System.currentTimeMillis();
         boolean cycleRan = false;
         try {
@@ -121,6 +194,9 @@ public class FeedPollerService {
                 int totalSaved = 0;
                 int totalSourcesProcessed = 0;
                 for (FeedSource source : claimed) {
+                    if (shuttingDown.get()) {
+                        break;
+                    }
                     try {
                         int saved = pollSource(source);
                         totalSaved += saved;
@@ -145,8 +221,15 @@ public class FeedPollerService {
             int totalSourcesProcessed = 0;
 
             for (Source sourceConfig : configuredSources) {
+                if (shuttingDown.get()) {
+                    break;
+                }
                 if (!sourceConfig.isEnabled()) {
                     log.debug("Skipping disabled source: {}", sourceConfig.getUrl());
+                    continue;
+                }
+                if (isBackedOff(sourceConfig.getUrl())) {
+                    log.debug("Skipping backing-off source: {}", sourceConfig.getUrl());
                     continue;
                 }
 
@@ -165,6 +248,7 @@ public class FeedPollerService {
         } catch (Exception ex) {
             log.error("Feed poll cycle failed - continuing", ex);
         } finally {
+            inFlightCycles.decrementAndGet();
             if (cycleRan) {
                 lastCompletedPollCycle = Instant.now();
             }
@@ -173,6 +257,9 @@ public class FeedPollerService {
     }
 
     public int pollSingleSource(Source sourceConfig) {
+        if (shuttingDown.get()) {
+            return 0;
+        }
         String url = sourceConfig.getUrl();
         Instant attemptAt = Instant.now();
 
@@ -221,7 +308,7 @@ public class FeedPollerService {
     }
 
     public int pollSingleSource(FeedSource source) {
-        if (source == null) {
+        if (source == null || shuttingDown.get()) {
             return 0;
         }
         source.setLastAttemptAt(Instant.now());
@@ -249,6 +336,9 @@ public class FeedPollerService {
     @Transactional
     public List<FeedSource> claimDueSources(Instant now) {
         List<FeedSource> claimed = new ArrayList<>();
+        if (shuttingDown.get()) {
+            return claimed;
+        }
         Instant leaseUntil = now.plus(leaseDuration);
         List<FeedSource> candidates;
         try {
@@ -434,27 +524,33 @@ public class FeedPollerService {
 
             if (result.robotsDisallowed()) {
                 log.info("Source {} disallowed by robots.txt - skipping", source.getUrl());
-                source.setLastErrorClass("ROBOTS");
-                source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
-                feedSources.save(source);
+                recordFailure(source, "ROBOTS", "robots.txt disallowed", null);
+                if (metrics != null) {
+                    metrics.recordPollError();
+                }
                 return 0;
             }
 
             if (result.httpCode() == 304) {
                 log.info("Source {} not modified (304) - skipping", source.getUrl());
-                source.setLastSuccessAt(Instant.now());
-                source.setLastErrorClass(null);
-                source.setConsecutiveFailures(0);
-                feedSources.save(source);
+                source = markSuccess(source, Instant.now());
+                if (metrics != null) {
+                    metrics.recordPollNotModified();
+                }
                 return 0;
             }
 
             if (!result.ok()) {
                 log.warn("Failed to fetch {}: HTTP {}", source.getUrl(), result.httpCode());
                 String errorClass = result.httpCode() == 0 ? "NETWORK" : "HTTP_" + result.httpCode();
-                source.setLastErrorClass(errorClass);
-                source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
-                feedSources.save(source);
+                recordFailure(source, errorClass, "HTTP " + result.httpCode(), result.retryAfter());
+                if (metrics != null) {
+                    if (result.backoffRequested()) {
+                        metrics.recordPollRateLimited();
+                    } else {
+                        metrics.recordPollError();
+                    }
+                }
                 return 0;
             }
 
@@ -463,9 +559,10 @@ public class FeedPollerService {
                 entries = parse(result.content());
             } catch (Exception e) {
                 log.error("Failed to parse feed from {}: {}", source.getUrl(), e.getMessage());
-                source.setLastErrorClass("PARSE");
-                source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
-                feedSources.save(source);
+                recordFailure(source, "PARSE", "PARSE: " + e.getMessage(), null);
+                if (metrics != null) {
+                    metrics.recordPollError();
+                }
                 return 0;
             }
 
@@ -511,19 +608,80 @@ public class FeedPollerService {
                 source.setLastNewItemAt(fetchedAt);
             }
 
-            source.setLastSuccessAt(fetchedAt);
-            source.setLastErrorClass(null);
-            source.setConsecutiveFailures(0);
-            source = feedSources.save(source);
+            source = markSuccess(source, fetchedAt);
+            if (metrics != null) {
+                metrics.recordPollSuccess();
+            }
 
             log.info("Polled {} (source id {}) -> {} items saved at {}", source.getUrl(), source.getId(), saved, fetchedAt);
             return saved;
         } catch (Exception ex) {
             log.error("Error polling source {}: {}", source.getUrl(), ex.getMessage());
-            source.setLastErrorClass("NETWORK");
-            source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
-            feedSources.save(source);
+            recordFailure(source, "NETWORK", ex.getMessage(), null);
+            if (metrics != null) {
+                metrics.recordPollError();
+            }
             return 0;
+        }
+    }
+
+    /**
+     * Persist a failed attempt and schedule the next attempt. Consecutive
+     * failures double the configured base delay, bounded by the max; a
+     * server-provided Retry-After is honoured as a lower bound, still capped.
+     */
+    private void recordFailure(FeedSource source, String errorClass, String errorSummary, Duration retryAfter) {
+        Instant now = Instant.now();
+        int failures = source.getConsecutiveFailures() + 1;
+        source.setConsecutiveFailures(failures);
+        source.setLastErrorClass(errorClass);
+        source.setLastErrorAt(now);
+        source.setLastError(PoisonErrorSanitizer.sanitize(errorSummary));
+        source.setNextPollAt(now.plus(backoffFor(failures, retryAfter)));
+        feedSources.save(source);
+    }
+
+    /**
+     * Persist a successful attempt, clearing failure, backoff, and error state.
+     */
+    private FeedSource markSuccess(FeedSource source, Instant successAt) {
+        source.setLastSuccessAt(successAt);
+        source.setLastErrorClass(null);
+        source.setLastErrorAt(null);
+        source.setLastError(null);
+        source.setConsecutiveFailures(0);
+        source.setNextPollAt(null);
+        return feedSources.save(source);
+    }
+
+    private Duration backoffFor(int consecutiveFailures, Duration retryAfter) {
+        long base = Math.max(1L, backoffBase.toMillis());
+        long max = Math.max(base, maxBackoff.toMillis());
+        long delay = base;
+        int steps = Math.min(Math.max(1, consecutiveFailures), 32);
+        for (int attempt = 1; attempt < steps; attempt++) {
+            if (delay >= max / 2) {
+                delay = max;
+                break;
+            }
+            delay = Math.min(max, delay * 2);
+        }
+        if (retryAfter != null) {
+            long requested = Math.min(max, Math.max(0L, retryAfter.toMillis()));
+            delay = Math.max(delay, requested);
+        }
+        return Duration.ofMillis(Math.max(1L, Math.min(max, delay)));
+    }
+
+    private boolean isBackedOff(String url) {
+        try {
+            Optional<FeedSource> existing = feedSources.findByUrl(url);
+            return existing != null && existing.isPresent()
+                    && existing.get().getNextPollAt() != null
+                    && existing.get().getNextPollAt().isAfter(Instant.now());
+        } catch (RuntimeException ex) {
+            log.debug("Backoff lookup failed for {}: {}", url, ex.getMessage());
+            return false;
         }
     }
 

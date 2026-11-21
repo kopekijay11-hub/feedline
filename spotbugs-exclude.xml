@@ -74,6 +74,28 @@
     <Bug pattern="EI_EXPOSE_REP2"/>
   </Match>
 
+  <!-- EI_EXPOSE_REP2: health collaborators are injected Spring services. -->
+  <Match>
+    <Class name="ca.feedline.health.PollCycleHeartbeatIndicator"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.health.SourcesHealthIndicator"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.health.SourcesHealthController"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.health.SourceHealthService"/>
+    <Method name="setMetrics"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+
   <!-- EI_EXPOSE_REP2: RobotsRules is an internal immutable-by-convention holder constructed
        from a freshly parsed list within the parser; no external mutable ownership is exposed. -->
   <Match>

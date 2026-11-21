@@ -2,6 +2,7 @@ package ca.feedline.service;
 
 import ca.feedline.config.FeedProperties;
 import ca.feedline.repository.OutboxEventRepository;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -12,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @ConditionalOnProperty(name = "feed.outbox.cleanup.enabled", havingValue = "true", matchIfMissing = true)
@@ -23,6 +25,7 @@ public class OutboxCleanupService {
     private final OutboxEventRepository outboxEvents;
     private final FeedProperties feedProperties;
     private final Clock clock;
+    private final AtomicBoolean running = new AtomicBoolean(true);
 
     @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Spring injection")
     public OutboxCleanupService(OutboxEventRepository outboxEvents, FeedProperties feedProperties, Clock clock) {
@@ -31,13 +34,25 @@ public class OutboxCleanupService {
         this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
+    @PreDestroy
+    public void shutdown() {
+        running.set(false);
+        log.info("Outbox cleanup stopped accepting new runs");
+    }
+
     @Scheduled(cron = "${feed.outbox.cleanup.cron:0 0 * * * *}")
     public void scheduledCleanup() {
+        if (!running.get()) {
+            return;
+        }
         cleanup();
     }
 
     @Transactional
     public int cleanup() {
+        if (!running.get()) {
+            return 0;
+        }
         return doCleanup();
     }
 

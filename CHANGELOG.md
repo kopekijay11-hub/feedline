@@ -1,5 +1,16 @@
 # Changelog
 
+## M5 Phase 3 — Source health/backoff alignment, graceful shutdown & metrics coverage.
+- Added `V13__source_health_backoff.sql`: `next_poll_at`, `last_error_at`, and bounded `last_error` per source
+- Consecutive fetch/parse/network failures now increment `consecutive_failures`, set `last_error_at`/`last_error`, and schedule exponential backoff (`feed.poller.backoff-base`, `feed.poller.max-backoff`)
+- Upstream `429`/`503` `Retry-After` is parsed and bounded (1h); the poller treats rate-limited sources as `BACKOFF` and defers re-claiming via `next_poll_at`
+- A clean poll or 304 clears failure, backoff, and error state
+- `/api/v1/sources/health` exposes `state`, `nextPollAt`, `lastErrorAt`, and a `PoisonErrorSanitizer`-redacted `lastError`
+- Added graceful shutdown hooks: the poller stops claiming, waits a bounded in-flight window, and releases all leases owned by the worker; relay/cleanup stop accepting new work
+- Added `server.shutdown: graceful`, `spring.lifecycle.timeout-per-shutdown-phase`, and bounded scheduler shutdown settings
+- Added low-cardinality metrics: `feedline.poller.poll.total{outcome=success|not_modified|rate_limited|error}`, `feedline.sources.health{state=...}`, `feedline.sources.active.count`, and `feedline.shutdown.total{outcome=...}`
+- Added unit/seam coverage for backoff progression, `429`/`503` handling, recovery, sanitized health errors, lease release, and metric tag safety (141 tests total)
+
 ## M5 Phase 2 — Outbox relay batch/partition tuning, poison diagnostics & relay tests.
 - Added bounded `feed.outbox.*` binding through `FeedProperties.Outbox` with clamping for batch size, attempts, backoff, and send timeout
 - Relay claims publishable rows by `(next_attempt_at, id)` with `FOR UPDATE SKIP LOCKED`, keeping batches bounded by the configured limit

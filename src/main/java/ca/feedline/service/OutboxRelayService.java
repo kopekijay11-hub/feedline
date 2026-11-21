@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.annotation.PreDestroy;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -29,6 +30,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 @SuppressFBWarnings({"REC_CATCH_EXCEPTION"})
@@ -62,6 +64,7 @@ public class OutboxRelayService {
     private final AtomicLong publishedCount = new AtomicLong();
     private final AtomicLong failureCount = new AtomicLong();
     private final AtomicLong requeuedCount = new AtomicLong();
+    private final AtomicBoolean running = new AtomicBoolean(true);
     private FeedlineMetrics metrics;
 
     @Autowired
@@ -113,9 +116,26 @@ public class OutboxRelayService {
         }
     }
 
+    /**
+     * Stop claiming new outbox batches on shutdown. An in-flight batch is
+     * allowed to finish its bounded send wait; the scheduler no longer starts
+     * new work.
+     */
+    @PreDestroy
+    public void shutdown() {
+        running.set(false);
+        log.info("Outbox relay stopped accepting new batches");
+        if (metrics != null) {
+            metrics.recordShutdown("relay_stopped");
+        }
+    }
+
     @Scheduled(fixedDelayString = "${feed.outbox.poll-delay:2000}")
     @Transactional
     public void publishPending() {
+        if (!running.get()) {
+            return;
+        }
         List<OutboxEvent> pending = outboxEvents.findPublishable(batchSize, clock.instant());
         for (OutboxEvent event : pending) {
             try {

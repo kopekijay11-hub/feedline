@@ -1,9 +1,9 @@
 # Feedline — Handoff
 
 ## Current branch
-- Active branch: `feat/m5-relay-partitioning`; base `main @ e4f6bcf` (M5 Phase 1 merged); working tree clean prior to this change.
-- Migration state: `V1`–`V12` ship on this branch (`V7` skipped; `V10` outbox retention/replay metadata; `V11` source poller leases; `V12` outbox `last_attempt_at`).
-- Verification baseline before this change: `115/115` tests passing, `0` SpotBugs findings (`failOnError=true`).
+- Active branch: `feat/m5-health-lifecycle`; base `main @ ed970ac` (M5 Phase 2 merged); working tree clean prior to this change.
+- Migration state: `V1`–`V13` ship on this branch (`V7` skipped; `V10` outbox retention/replay metadata; `V11` source poller leases; `V12` outbox `last_attempt_at`; `V13` source health/backoff state).
+- Verification baseline before this change: `132/132` tests passing, `0` SpotBugs findings (`failOnError=true`).
 
 ## M3 hardening
 - Renamed the outbox migration from `V7` to `V9`. It now runs after `V8` on databases that already applied `V8`, which is required with `validate-on-migrate: true` and the default `out-of-order: false`.
@@ -100,3 +100,18 @@ M3 is merged on `main`. The full gate is green, the migration ordering hazard is
 - Tests added: `OutboxRelayServiceTest` (batch clamps, exponential backoff cap, retry key/header stability), `OutboxRelayConcurrencyTest` (bounded batch, four-worker exactly-once), `OutboxRelayRealKafkaConcurrencyTest` (murmur2 key partitioning on 3 partitions), `AdminOutboxSeamTest` (diagnostic fields, secret sanitization, batch payload/schema replay), `PoisonErrorSanitizerTest`, and `FeedPropertiesTest`.
 - Verification: `mvn clean verify` — `132` tests run / `132` passed (`0` failures, `0` errors, `0` skipped); SpotBugs `BugInstance size is 0`, `Error size is 0` (`failOnError=true`).
 - Full log: `/tmp/opencode/m5-phase2-verify.log`.
+
+## M5 Phase 3 — Source Health & Backoff Alignment, Graceful Shutdown Hooks, Metrics Coverage
+
+- Branch: `feat/m5-health-lifecycle` (base `main @ ed970ac`, after the `feat/m5-relay-partitioning` merge).
+- Added `V13__source_health_backoff.sql`: nullable `next_poll_at`, `last_error_at`, `last_error` columns plus a partial claim index on `next_poll_at`.
+- `FeedSource` exposes the new fields; `FeedSourceRepository` claim queries require `next_poll_at IS NULL OR next_poll_at <= now`.
+- `FeedFetcher` parses bounded `Retry-After` (delta-seconds or HTTP-date, capped at 1h) on 429/503; `FeedFetchResult` carries the hint. 429 is not retried internally; 503 keeps the bounded retry loop and propagates the hint on final failure.
+- `FeedPollerService` records `consecutive_failures`, `last_error_at`, sanitized `last_error`, and exponential `next_poll_at` on every failure (robots, HTTP/network, parse). A clean 200/304 clears failure/backoff/error state. The configured-source fallback loop also honours `next_poll_at`.
+- `SourceHealthService` reports `UP`/`DEGRADED`/`BACKOFF`/`DISABLED`/`UNKNOWN`, exposes `nextPollAt`, `lastErrorAt`, and a `PoisonErrorSanitizer`-redacted `lastError`.
+- Graceful shutdown: `FeedPollerService.@PreDestroy` stops new claims, waits up to `feed.poller.shutdown-timeout` for an in-flight cycle, and bulk-releases leases owned by its worker. `OutboxRelayService` and `OutboxCleanupService` flip a running flag so no new batches/runs start; in-flight work keeps its bounded window.
+- `application.yml` adds `server.shutdown: graceful`, `spring.lifecycle.timeout-per-shutdown-phase`, scheduler await-termination settings, and `feed.poller.backoff-base` / `max-backoff` / `shutdown-timeout`.
+- Metrics: `feedline.poller.poll.total{outcome=success|not_modified|rate_limited|error}`, `feedline.sources.health{state=healthy|degraded|backoff|disabled|unknown}`, `feedline.sources.active.count`, `feedline.poller.leases.released.total`, and `feedline.shutdown.total{outcome=...}`.
+- Tests added/expanded: `FeedPollerServiceTest` (backoff progression, 429 Retry-After, clean reset, shutdown lease release), `SourceHealthSeamTest` (429/503 BACKOFF, recovery, sanitized health error, shutdown lease release), `FeedlineMetricsTest` (poll/health/shutdown metrics and tag safety).
+- Verification: `mvn clean verify` — `141` tests run / `141` passed (`0` failures, `0` errors, `0` skipped); SpotBugs `BugInstance size is 0`, `Error size is 0` (`failOnError=true`).
+- Full log: `/tmp/opencode/m5-phase3-verify.log`.

@@ -141,3 +141,20 @@ The Kafka record key is the deterministic `eventKey` (`sourceId:guid`), and the 
 
 **Replay semantics and metrics**
 `replayBatch` clamps its limit to `1..500`, locks candidate rows with `FOR UPDATE SKIP LOCKED`, and reports rows that are no longer poisoned in `skippedIds`. Replay still resets `poisoned_at`, `published_at`, `attempts`, and `last_error`, increments `replayed_count`, and leaves `event_key`/`payload`/`schema_version` untouched. `feedline.outbox.events.total` keeps its fixed `outcome` tag set (`published`, `retry_scheduled`, `poisoned`, `replayed`); no exception text, URL, GUID, or token is used as a metric tag.
+
+## M5 Phase 3 — Source Health & Backoff Alignment, Graceful Shutdown, Metrics Coverage
+
+**Why source backoff is persisted instead of in-memory**
+A poller replica can restart, lose leadership, or be replaced mid-cycle. If backoff lived only in a JVM map, a restart would immediately re-claim every failing source and hammer the upstream again. `V13__source_health_backoff.sql` therefore persists `next_poll_at` next to the source, and the claim queries require `next_poll_at IS NULL OR next_poll_at <= now`. Backoff is part of the durable source state, not process-local bookkeeping, so every replica observes the same deferral. The fallback configured-source loop applies the same check so a claim-path outage cannot turn into an upstream hammer.
+
+**Why exponential backoff is bounded and honours Retry-After**
+The base delay (`feed.poller.backoff-base`, default 30s) doubles per consecutive failure up to `feed.poller.max-backoff` (default 1h). An upstream `Retry-After` on a 429 or 503 is parsed in `FeedFetcher`, clamped to one hour, and used as a lower bound on the next poll. Both the exponential schedule and the server hint are bounded, so a hostile or misconfigured origin cannot push the poller into a multi-day sleep and a transient failure cannot retry forever with no ceiling. A clean 200/304 clears `consecutive_failures`, `next_poll_at`, `last_error`, and `last_error_at`; validators are still only advanced after successful ingest.
+
+**Why backoff is a distinct health state**
+`SourceHealthService` reports `UP`, `DEGRADED`, `BACKOFF`, `DISABLED`, or `UNKNOWN`. Generic failures stay `DEGRADED` (matching the existing health contract); 429/503 responses with an active `next_poll_at` are `BACKOFF`, because the operator needs to distinguish "the feed is broken" from "we are deliberately waiting". The detail view adds `nextPollAt`, `lastErrorAt`, and a sanitized `lastError`; `PoisonErrorSanitizer` is applied on the way out so credentials or tokens in an upstream message cannot leak through the public health API.
+
+**Why leases are released on graceful shutdown**
+An ungraceful crash intentionally leaves `lease_until` in place so another replica reclaims the source after expiry. A graceful exit is different: the worker knows it will not poll again, so waiting for the two-minute lease would strand every source it owned. `FeedPollerService` exposes a `@PreDestroy` hook that stops new claims, waits at most `feed.poller.shutdown-timeout` for an in-flight cycle, and bulk-clears `lease_owner`/`lease_until` for its worker id. The outbox relay and cleanup service flip a running flag so no new batches start; an in-flight batch still gets its bounded send window. `server.shutdown: graceful` plus `spring.lifecycle.timeout-per-shutdown-phase` and scheduler await-termination settings make the same bound explicit at the Spring level.
+
+**Why the new metrics stay low cardinality**
+Poll outcomes use a fixed four-value `outcome` tag (`success`, `not_modified`, `rate_limited`, `error`); unknown values bucket into `error` rather than creating a new series. Source health uses a fixed `state` tag (`healthy`, `degraded`, `backoff`, `disabled`, `unknown`) with one gauge per state and an `active` gauge. Shutdown uses a fixed `outcome` tag (`lease_released`, `lease_release_failed`, `relay_stopped`, `cleanup_stopped`, `completed`). No URL, exception text, GUID, token, or per-source identifier is ever used as a tag.

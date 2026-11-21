@@ -9,6 +9,8 @@ import org.mockito.Mockito;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -70,5 +72,44 @@ class FeedlineMetricsTest {
         new FeedlineMetrics(registry, repo, Clock.fixed(now, ZoneOffset.UTC));
 
         assertThat(registry.get("feedline.outbox.oldest.pending.age.seconds").gauge().value()).isEqualTo(0.0);
+    }
+
+    @Test
+    void pollHealthAndShutdownMetricsAreLowCardinality() {
+        MeterRegistry registry = new SimpleMeterRegistry();
+        FeedlineMetrics metrics = new FeedlineMetrics(registry);
+
+        metrics.recordPollSuccess();
+        metrics.recordPollNotModified();
+        metrics.recordPollRateLimited();
+        metrics.recordPollError();
+        metrics.recordPollOutcome("unexpected-value");
+        metrics.recordShutdownLeaseRelease(3);
+        metrics.recordShutdown("relay_stopped");
+        metrics.recordShutdown("cleanup_stopped");
+
+        assertThat(registry.counter("feedline.poller.poll.total", "outcome", "success").count()).isEqualTo(1.0);
+        assertThat(registry.counter("feedline.poller.poll.total", "outcome", "not_modified").count()).isEqualTo(1.0);
+        assertThat(registry.counter("feedline.poller.poll.total", "outcome", "rate_limited").count()).isEqualTo(1.0);
+        assertThat(registry.counter("feedline.poller.poll.total", "outcome", "error").count()).isEqualTo(2.0);
+        assertThat(registry.counter("feedline.poller.leases.released.total").count()).isEqualTo(3.0);
+        assertThat(registry.counter("feedline.shutdown.total", "outcome", "lease_released").count()).isEqualTo(1.0);
+        assertThat(registry.counter("feedline.shutdown.total", "outcome", "relay_stopped").count()).isEqualTo(1.0);
+        assertThat(registry.counter("feedline.shutdown.total", "outcome", "cleanup_stopped").count()).isEqualTo(1.0);
+
+        Map<String, Long> counts = new LinkedHashMap<>();
+        counts.put("healthy", 2L);
+        counts.put("degraded", 1L);
+        counts.put("backoff", 1L);
+        counts.put("disabled", 1L);
+        counts.put("unknown", 1L);
+        metrics.updateSourceHealth(counts, 5L);
+
+        assertThat(registry.get("feedline.sources.active.count").gauge().value()).isEqualTo(5.0);
+        assertThat(registry.get("feedline.sources.health").tag("state", "healthy").gauge().value()).isEqualTo(2.0);
+        assertThat(registry.get("feedline.sources.health").tag("state", "degraded").gauge().value()).isEqualTo(1.0);
+        assertThat(registry.get("feedline.sources.health").tag("state", "backoff").gauge().value()).isEqualTo(1.0);
+        assertThat(registry.get("feedline.sources.health").tag("state", "disabled").gauge().value()).isEqualTo(1.0);
+        assertThat(registry.get("feedline.sources.health").tag("state", "unknown").gauge().value()).isEqualTo(1.0);
     }
 }

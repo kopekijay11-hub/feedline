@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpHeaders;
 import java.nio.charset.Charset;
 import java.nio.charset.IllegalCharsetNameException;
 import java.nio.charset.StandardCharsets;
@@ -17,10 +18,12 @@ import java.nio.charset.UnsupportedCharsetException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,6 +50,8 @@ public class FeedFetcher {
     private static final String USER_AGENT_PREFIX = "Feedline/0.1";
 
     private static final int ERROR_DRAIN_BYTES = 8192;
+
+    private static final Duration MAX_RETRY_AFTER = Duration.ofHours(1);
 
     private static final List<String> ACCEPT = List.of(
             "application/rss+xml, application/xml, application/atom+xml, text/xml, */*");
@@ -183,6 +188,11 @@ public class FeedFetcher {
     }
 
     private FeedFetchResult fetchWithRetry(URI uri, String etag, String lastModified, int attempt) {
+        return fetchWithRetry(uri, etag, lastModified, attempt, null);
+    }
+
+    private FeedFetchResult fetchWithRetry(URI uri, String etag, String lastModified, int attempt,
+                                           Duration retryAfterHint) {
         try {
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(uri)
@@ -200,6 +210,8 @@ public class FeedFetcher {
             HttpRequest request = requestBuilder.build();
             HttpResponse<InputStream> response = httpClient.send(request, this::checkRobotsForHop);
             int statusCode = response.statusCode();
+            Duration responseRetryAfter = retryAfter(response.headers());
+            Duration retryAfter = maxDuration(retryAfterHint, responseRetryAfter);
             boolean retryAfterSleep = false;
             FeedFetchResult result;
 
@@ -208,6 +220,11 @@ public class FeedFetcher {
                     log.info("Feed {} not modified (304)", uri);
                     drainBounded(body);
                     result = FeedFetchResult.notModified(uri.toString());
+                } else if (statusCode == 429) {
+                    log.warn("Feed {} rate limited with HTTP 429 - backing off (Retry-After={})",
+                            uri, retryAfter);
+                    drainBounded(body);
+                    result = FeedFetchResult.failure(statusCode, uri.toString(), retryAfter);
                 } else if (statusCode >= 400 && statusCode < 500) {
                     log.warn("Feed {} returned HTTP {} - not retrying", uri, statusCode);
                     drainBounded(body);
@@ -220,7 +237,7 @@ public class FeedFetcher {
                     } else {
                         log.error("Feed {} returned HTTP {} after {} retries - giving up",
                                 uri, statusCode, config.maxRetries());
-                        result = FeedFetchResult.failure(statusCode, uri.toString());
+                        result = FeedFetchResult.failure(statusCode, uri.toString(), retryAfter);
                     }
                 } else if (statusCode >= 200 && statusCode < 300) {
                     String bodyText = readBodyWithLimit(body,
@@ -248,9 +265,9 @@ public class FeedFetcher {
                     sleeper.sleep(backoff);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    return FeedFetchResult.failure(statusCode, uri.toString());
+                    return FeedFetchResult.failure(statusCode, uri.toString(), retryAfter);
                 }
-                return fetchWithRetry(uri, etag, lastModified, attempt + 1);
+                return fetchWithRetry(uri, etag, lastModified, attempt + 1, retryAfter);
             }
             return result;
 
@@ -272,11 +289,59 @@ public class FeedFetcher {
                     Thread.currentThread().interrupt();
                     return FeedFetchResult.failure(0, uri.toString());
                 }
-                return fetchWithRetry(uri, etag, lastModified, attempt + 1);
+                return fetchWithRetry(uri, etag, lastModified, attempt + 1, retryAfterHint);
             }
             log.error("Network error for {} after {} retries - giving up", uri, config.maxRetries());
             return FeedFetchResult.failure(0, uri.toString());
         }
+    }
+
+    /**
+     * Parse a bounded {@code Retry-After} header. Supports both delta-seconds
+     * and HTTP-date forms. Values are clamped to {@link #MAX_RETRY_AFTER} so a
+     * hostile or misconfigured origin cannot push the poller into a multi-day
+     * sleep.
+     */
+    private Duration retryAfter(HttpHeaders headers) {
+        if (headers == null) {
+            return null;
+        }
+        Optional<String> raw = headers.firstValue("Retry-After");
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+        String value = raw.get().trim();
+        if (value.isEmpty()) {
+            return null;
+        }
+        try {
+            long seconds = Long.parseLong(value);
+            long bounded = Math.max(0L, Math.min(seconds, MAX_RETRY_AFTER.getSeconds()));
+            return Duration.ofSeconds(bounded);
+        } catch (NumberFormatException ignored) {
+            // Fall through to HTTP-date parsing.
+        }
+        try {
+            Instant when = Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(value));
+            Duration wait = Duration.between(clock.instant(), when);
+            if (wait.isNegative()) {
+                return Duration.ZERO;
+            }
+            return wait.compareTo(MAX_RETRY_AFTER) > 0 ? MAX_RETRY_AFTER : wait;
+        } catch (RuntimeException ignored) {
+            log.debug("Ignoring unparseable Retry-After value");
+            return null;
+        }
+    }
+
+    private static Duration maxDuration(Duration left, Duration right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return left.compareTo(right) >= 0 ? left : right;
     }
 
     private String buildUserAgent() {
@@ -382,6 +447,8 @@ public class FeedFetcher {
             outcome = "not_modified";
         } else if (result.ok()) {
             outcome = "ok";
+        } else if (result.backoffRequested()) {
+            outcome = "rate_limited";
         } else {
             outcome = "error";
         }

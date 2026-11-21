@@ -4,12 +4,14 @@ import ca.feedline.config.FeedProperties;
 import ca.feedline.config.FeedProperties.Source;
 import ca.feedline.domain.FeedSource;
 import ca.feedline.repository.FeedSourceRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -19,9 +21,9 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -126,6 +128,90 @@ class FeedPollerServiceTest {
         poller.pollSingleSource(new Source("Fixture", URL));
 
         verify(sources).releaseLease(stored.getId());
+    }
+
+    @Test
+    void failureRecordsConsecutiveCountLastErrorAndGrowingBackoff() {
+        FeedSource stored = storedSource();
+        when(sources.findByUrl(URL)).thenReturn(Optional.of(stored));
+        when(sources.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fetcher.fetch(URL, OLD_ETAG, OLD_LAST_MODIFIED)).thenReturn(FeedFetchResult.failure(500, URL));
+
+        assertThat(poller.pollSingleSource(new Source("Fixture", URL))).isZero();
+
+        Instant firstBackoff = stored.getNextPollAt();
+        assertThat(stored.getConsecutiveFailures()).isEqualTo(3);
+        assertThat(stored.getLastErrorClass()).isEqualTo("HTTP_500");
+        assertThat(stored.getLastError()).isEqualTo("HTTP 500");
+        assertThat(stored.getLastErrorAt()).isNotNull();
+        assertThat(firstBackoff).isAfter(Instant.now());
+
+        assertThat(poller.pollSingleSource(new Source("Fixture", URL))).isZero();
+
+        assertThat(stored.getConsecutiveFailures()).isEqualTo(4);
+        assertThat(stored.getNextPollAt()).isAfter(firstBackoff);
+    }
+
+    @Test
+    void rateLimitedResponseHonoursRetryAfterAndRecordsRateLimitedOutcome() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        FeedlineMetrics metrics = new FeedlineMetrics(registry);
+        FeedPollerService rateLimitedPoller = new FeedPollerService(
+                new FeedProperties(), fetcher, normalizer, sources, itemIngest, skipRecorder, metrics);
+        FeedSource stored = storedSource();
+        when(sources.findByUrl(URL)).thenReturn(Optional.of(stored));
+        when(sources.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fetcher.fetch(URL, OLD_ETAG, OLD_LAST_MODIFIED))
+                .thenReturn(FeedFetchResult.failure(429, URL, Duration.ofSeconds(120)));
+
+        assertThat(rateLimitedPoller.pollSingleSource(new Source("Fixture", URL))).isZero();
+
+        assertThat(stored.getLastErrorClass()).isEqualTo("HTTP_429");
+        assertThat(stored.getNextPollAt()).isAfter(Instant.now().plusSeconds(119));
+        assertThat(registry.counter("feedline.poller.poll.total", "outcome", "rate_limited").count())
+                .isEqualTo(1.0);
+        assertThat(registry.counter("feedline.fetch.requests.total", "outcome", "rate_limited").count())
+                .isZero();
+    }
+
+    @Test
+    void cleanPollResetsConsecutiveFailuresBackoffAndErrorState() {
+        FeedSource stored = storedSource();
+        Instant now = Instant.now();
+        stored.setLastErrorClass("HTTP_500");
+        stored.setLastErrorAt(now.minusSeconds(60));
+        stored.setLastError("HTTP 500");
+        stored.setNextPollAt(now.plusSeconds(60));
+        when(sources.findByUrl(URL)).thenReturn(Optional.of(stored));
+        when(sources.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fetcher.fetch(URL, OLD_ETAG, OLD_LAST_MODIFIED)).thenReturn(notModified());
+
+        assertThat(poller.pollSingleSource(new Source("Fixture", URL))).isZero();
+
+        assertThat(stored.getConsecutiveFailures()).isZero();
+        assertThat(stored.getLastErrorClass()).isNull();
+        assertThat(stored.getLastError()).isNull();
+        assertThat(stored.getLastErrorAt()).isNull();
+        assertThat(stored.getNextPollAt()).isNull();
+        assertThat(stored.getLastSuccessAt()).isNotNull();
+    }
+
+    @Test
+    void shutdownStopsClaimingAndReleasesOwnedLeases() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        FeedlineMetrics metrics = new FeedlineMetrics(registry);
+        FeedPollerService shutdownPoller = new FeedPollerService(
+                new FeedProperties(), fetcher, normalizer, sources, itemIngest, skipRecorder, metrics, "worker-shutdown");
+        when(sources.releaseAllLeasesOwnedBy("worker-shutdown")).thenReturn(2);
+
+        shutdownPoller.shutdown();
+
+        assertThat(shutdownPoller.isShuttingDown()).isTrue();
+        verify(sources).releaseAllLeasesOwnedBy("worker-shutdown");
+        assertThat(registry.counter("feedline.poller.leases.released.total").count()).isEqualTo(2.0);
+        assertThat(registry.counter("feedline.shutdown.total", "outcome", "lease_released").count()).isEqualTo(1.0);
+        assertThat(shutdownPoller.pollSingleSource(new Source("Fixture", URL))).isZero();
+        verify(fetcher, never()).fetch(anyString(), any(), any());
     }
 
     private FeedFetchResult notModified() {
