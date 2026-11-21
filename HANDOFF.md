@@ -1,9 +1,10 @@
 # Feedline — Handoff
 
 ## Current branch
-- Active branch: `main`; M3 is merged (`f598f1f` — `Merge branch 'feat/m3-kafka'`).
-- Base HEAD: `f598f1f`. Post-M3 polish is currently uncommitted in the working tree and is green under `mvn clean verify`.
-- Migration state: `V8__keyset_index_and_optimistic_locks.sql` then `V9__outbox_events.sql` ship on `main`; there is no `V7` migration.
+- Active branch: `main`; `origin/main` in sync; working tree clean prior to this change.
+- Base HEAD: `be97405` (`main` @ `be97405`, M3 + M4 Phases 1–4 merged).
+- Migration state: `V1`–`V11` ship on `main` (`V7` skipped; `V10` outbox retention/replay metadata; `V11` source poller leases).
+- Verification baseline: `111/111` tests passing, `0` SpotBugs findings (`failOnError=true`).
 
 ## M3 hardening
 - Renamed the outbox migration from `V7` to `V9`. It now runs after `V8` on databases that already applied `V8`, which is required with `validate-on-migrate: true` and the default `out-of-order: false`.
