@@ -49,6 +49,10 @@ public class ItemsController {
             @RequestParam(name = "from", required = false) Instant from,
             @Parameter(description = "Published-at upper bound (inclusive). Items with null published_at are excluded when set.")
             @RequestParam(name = "to", required = false) Instant to,
+            @Parameter(description = "Fetched-at lower bound (inclusive), point-in-time ingest window")
+            @RequestParam(name = "fetchedFrom", required = false) Instant fetchedFrom,
+            @Parameter(description = "Fetched-at upper bound (inclusive), point-in-time ingest window")
+            @RequestParam(name = "fetchedTo", required = false) Instant fetchedTo,
             @Parameter(description = "Opaque keyset cursor from a previous page") @RequestParam(name = "cursor", required = false) String cursor,
             @Parameter(description = "Page size (max 100, default 20)") @RequestParam(name = "size", required = false) Integer size) {
         int pageSize = (size == null) ? 20 : size;
@@ -59,7 +63,7 @@ public class ItemsController {
             pageSize = 100;
         }
         try {
-            ItemsPage page = queryService.list(source, q, from, to, cursor, pageSize);
+            ItemsPage page = queryService.list(source, q, from, to, fetchedFrom, fetchedTo, cursor, pageSize);
             return ResponseEntity.ok(page);
         } catch (IllegalArgumentException ex) {
             ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
