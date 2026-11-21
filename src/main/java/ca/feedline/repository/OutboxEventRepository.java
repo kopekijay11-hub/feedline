@@ -2,6 +2,7 @@ package ca.feedline.repository;
 
 import ca.feedline.domain.OutboxEvent;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -56,4 +57,118 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
             WHERE published_at IS NULL AND poisoned_at IS NULL
             """, nativeQuery = true)
     Instant oldestPendingCreatedAt();
+
+    @Modifying
+    @Query(value = """
+            DELETE FROM outbox_events
+            WHERE id IN (
+                SELECT id FROM outbox_events
+                WHERE published_at IS NOT NULL
+                  AND published_at < :cutoff
+                ORDER BY published_at, id
+                LIMIT :batchSize
+            )
+            """, nativeQuery = true)
+    int deletePublishedBefore(@Param("cutoff") Instant cutoff, @Param("batchSize") int batchSize);
+
+    @Modifying
+    @Query(value = """
+            DELETE FROM outbox_events
+            WHERE id IN (
+                SELECT id FROM outbox_events
+                WHERE published_at IS NOT NULL
+                  AND published_at < :cutoff
+                ORDER BY published_at, id
+                LIMIT :batchSize
+            )
+            """, nativeQuery = true)
+    int deletePublishedBeforeCutoff(@Param("cutoff") Instant cutoff, @Param("batchSize") int batchSize);
+
+    @Modifying
+    @Query(value = """
+            DELETE FROM outbox_events
+            WHERE id IN (
+                SELECT id FROM outbox_events
+                WHERE published_at IS NOT NULL
+                  AND published_at < :cutoff
+                ORDER BY published_at, id
+                LIMIT :batchSize
+            )
+            """, nativeQuery = true)
+    int deletePublishedBeforeBatch(@Param("cutoff") Instant cutoff, @Param("batchSize") int batchSize);
+
+    @Modifying
+    @Query(value = """
+            DELETE FROM outbox_events
+            WHERE id IN (
+                SELECT id FROM outbox_events
+                WHERE published_at IS NOT NULL
+                  AND published_at < :cutoff
+                ORDER BY published_at, id
+                LIMIT :batchSize
+            )
+            """, nativeQuery = true)
+    int deletePublishedBatch(@Param("cutoff") Instant cutoff, @Param("batchSize") int batchSize);
+
+    @Modifying
+    @Query(value = """
+            DELETE FROM outbox_events
+            WHERE id IN (
+                SELECT id FROM outbox_events
+                WHERE published_at IS NOT NULL
+                  AND published_at < :cutoff
+                ORDER BY published_at, id
+                LIMIT :batchSize
+            )
+            """, nativeQuery = true)
+    int deleteExpiredPublished(@Param("cutoff") Instant cutoff, @Param("batchSize") int batchSize);
+
+    @Modifying
+    @Query(value = """
+            DELETE FROM outbox_events
+            WHERE id IN (
+                SELECT id FROM outbox_events
+                WHERE published_at IS NOT NULL
+                  AND published_at < :cutoff
+                ORDER BY published_at, id
+                LIMIT :batchSize
+            )
+            """, nativeQuery = true)
+    int deleteOldPublished(@Param("cutoff") Instant cutoff, @Param("batchSize") int batchSize);
+
+    // convenience aliases for count queries
+    @Query(value = """
+            SELECT COUNT(*) FROM outbox_events
+            WHERE published_at IS NULL AND poisoned_at IS NULL
+            """, nativeQuery = true)
+    long countPending();
+
+    // admin poisoned listing helpers
+    @Query(value = """
+            SELECT * FROM outbox_events
+            WHERE published_at IS NULL
+              AND poisoned_at IS NOT NULL
+              AND (:topic IS NULL OR topic = :topic)
+            ORDER BY poisoned_at DESC, id DESC
+            LIMIT :limit OFFSET :offset
+            """, nativeQuery = true)
+    List<OutboxEvent> findPoisonedOrdered(@Param("topic") String topic, @Param("limit") int limit, @Param("offset") int offset);
+
+    @Query(value = """
+            SELECT COUNT(*) FROM outbox_events
+            WHERE published_at IS NULL
+              AND poisoned_at IS NOT NULL
+              AND (:topic IS NULL OR topic = :topic)
+            """, nativeQuery = true)
+    long countPoisonedFiltered(@Param("topic") String topic);
+
+    @Query(value = """
+            SELECT * FROM outbox_events
+            WHERE published_at IS NULL
+              AND poisoned_at IS NOT NULL
+              AND (:topic IS NULL OR topic = :topic)
+            ORDER BY poisoned_at ASC, id ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<OutboxEvent> findOldestPoisoned(@Param("topic") String topic, @Param("limit") int limit);
 }

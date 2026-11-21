@@ -97,6 +97,16 @@ feed:
     initial-backoff-ms: 1000
     max-backoff-ms: 60000
     send-timeout-ms: 5000
+    cleanup:
+      enabled: true
+      published-retention: 7d
+      batch-size: 500
+      cron: "0 0 * * * *"
+
+  admin:
+    enabled: true
+    api-key: ${FEED_ADMIN_API_KEY:feedline-admin-dev-token}
+    header-name: X-Admin-Token
 
   # Feed sources
   sources:

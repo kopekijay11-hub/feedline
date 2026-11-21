@@ -10,11 +10,13 @@ import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -41,7 +43,9 @@ public class OutboxRelayService {
     private final AtomicLong publishedCount = new AtomicLong();
     private final AtomicLong failureCount = new AtomicLong();
     private final AtomicLong requeuedCount = new AtomicLong();
+    private FeedlineMetrics metrics;
 
+    @Autowired
     public OutboxRelayService(OutboxEventRepository outboxEvents, KafkaTemplate<String, String> kafka,
                               @Value("${feed.outbox.batch-size:50}") int batchSize,
                               @Value("${feed.outbox.max-attempts:5}") int maxAttempts,
@@ -49,6 +53,16 @@ public class OutboxRelayService {
                               @Value("${feed.outbox.max-backoff-ms:60000}") long maxBackoffMs,
                               @Value("${feed.outbox.send-timeout-ms:5000}") long sendTimeoutMs,
                               Clock clock) {
+        this(outboxEvents, kafka, batchSize, maxAttempts, initialBackoffMs, maxBackoffMs, sendTimeoutMs, clock, null);
+    }
+
+    public OutboxRelayService(OutboxEventRepository outboxEvents, KafkaTemplate<String, String> kafka,
+                              @Value("${feed.outbox.batch-size:50}") int batchSize,
+                              @Value("${feed.outbox.max-attempts:5}") int maxAttempts,
+                              @Value("${feed.outbox.initial-backoff-ms:1000}") long initialBackoffMs,
+                              @Value("${feed.outbox.max-backoff-ms:60000}") long maxBackoffMs,
+                              @Value("${feed.outbox.send-timeout-ms:5000}") long sendTimeoutMs,
+                              Clock clock, FeedlineMetrics metrics) {
         this.outboxEvents = outboxEvents;
         this.kafka = kafka;
         this.batchSize = batchSize;
@@ -57,6 +71,15 @@ public class OutboxRelayService {
         this.maxBackoffMs = Math.max(this.initialBackoffMs, maxBackoffMs);
         this.sendTimeoutMs = Math.max(1, sendTimeoutMs);
         this.clock = clock;
+        this.metrics = metrics;
+    }
+
+    @Autowired(required = false)
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Spring injection")
+    public void setMetrics(FeedlineMetrics metrics) {
+        if (metrics != null) {
+            this.metrics = metrics;
+        }
     }
 
     @Scheduled(fixedDelayString = "${feed.outbox.poll-delay:2000}")
@@ -69,6 +92,9 @@ public class OutboxRelayService {
                         .get(sendTimeoutMs, TimeUnit.MILLISECONDS);
                 event.markPublished(clock.instant());
                 publishedCount.incrementAndGet();
+                if (metrics != null) {
+                    metrics.recordOutboxPublished();
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.warn("Outbox relay interrupted before publishing event {}; batch stopped", event.getId());
@@ -77,9 +103,15 @@ public class OutboxRelayService {
                 failureCount.incrementAndGet();
                 recordFailure(event, e);
                 if (event.isPoisoned()) {
+                    if (metrics != null) {
+                        metrics.recordOutboxPoisoned();
+                    }
                     log.warn("Outbox event {} quarantined after permanent publish failure: {}",
                             event.getId(), event.getLastError());
                     continue;
+                }
+                if (metrics != null) {
+                    metrics.recordOutboxRetryScheduled();
                 }
                 log.warn("Outbox event {} publish failed; retry delayed: {}", event.getId(), event.getLastError());
                 return;
@@ -93,6 +125,9 @@ public class OutboxRelayService {
         for (OutboxEvent event : poisoned) {
             event.requeueForRetry(clock.instant());
             requeuedCount.incrementAndGet();
+            if (metrics != null) {
+                metrics.recordOutboxReplayed();
+            }
             log.info("Outbox event {} requeued from poison quarantine", event.getId());
         }
         return poisoned.size();

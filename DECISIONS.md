@@ -63,3 +63,19 @@ A transient failure (timeout, network/broker unavailability) increments `attempt
 
 **Why the scheduler test no longer emits background warnings**
 `SchedulerInvokesPollerTest` must leave scheduling on to prove the scheduler invokes the poller. Its stub now returns `304 Not Modified` instead of repeated HTTP 500 failures, `feed.outbox.enabled=false` prevents relay startup work, and `@DirtiesContext(AFTER_CLASS)` closes the context so its scheduler thread cannot keep logging into later tests that share the cached context.
+
+## M4 Phase 1 — Observability & Outbox Housekeeping
+
+**Why is the outbox retention migration V10?**
+The existing sequence is V1–V6, V8, V9 (V7 was skipped during the M3 merge). The next sequential version is V10, so the retention/metadata migration is named `V10__outbox_retention_and_metadata.sql`. It adds a partial cleanup index on `published_at`, plus `replayed_count` and `schema_version` columns with safe `IF NOT EXISTS` guards. V9's partial claim index is left untouched and no historical backfill is performed.
+
+**Micrometer cardinality rules**
+Metrics use low-cardinality outcome tags only (`published`, `retry_scheduled`, `poisoned`, `replayed`, `inserted`, `duplicate`, `skipped`, `ok`, `not_modified`, `error`). Raw URLs, GUIDs, exception messages, and per-feed identifiers are never used as tags. Gauges are backed by repository count queries; timers record durations without tags.
+
+## M4 Phase 2 — Operator Admin API & Security Boundary
+
+**Why header auth instead of Spring Security**
+`/api/v1/admin/**` is protected by a dedicated `OncePerRequestFilter` (`AdminTokenFilter`) scoped to that path prefix, avoiding `spring-boot-starter-security` and its default auto-configuration that could alter the public `/api/v1/items`, `/api/v1/sources/health`, and `/actuator/**` surfaces. The token is compared with `MessageDigest.isEqual` on UTF-8 bytes. Missing or non-matching tokens return `401 application/problem+json`; a blank or disabled configured token fails closed with `403`.
+
+**Admin replay idempotency**
+Single replay requires the row to exist and be currently poisoned; a missing row returns `404`, while a published or pending (non-poisoned) row returns `409 Conflict` rather than silently requeueing. Replay resets `poisoned_at`, `published_at`, `attempts`, `next_attempt_at`, and `last_error`, and increments `replayed_count` plus `feedline.outbox.events.total{outcome="replayed"}`.

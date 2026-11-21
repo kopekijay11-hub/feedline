@@ -60,6 +60,7 @@ public class FeedFetcher {
     private final Sleeper sleeper;
     private final Clock clock;
     private final UrlSafety urlSafety;
+    private final FeedlineMetrics metrics;
 
     // Track last request time per origin for politeness
     private final Map<String, Instant> lastRequestTime = new HashMap<>();
@@ -69,17 +70,28 @@ public class FeedFetcher {
     }
 
     public FeedFetcher(FeedFetchConfig config, RobotsTxtParser robotsParser, Sleeper sleeper, Clock clock) {
-        this(config, new FeedHttpClient(config), robotsParser, sleeper, clock);
+        this(config, new FeedHttpClient(config), robotsParser, sleeper, clock, null);
+    }
+
+    public FeedFetcher(FeedFetchConfig config, RobotsTxtParser robotsParser, Sleeper sleeper, Clock clock,
+                       FeedlineMetrics metrics) {
+        this(config, new FeedHttpClient(config), robotsParser, sleeper, clock, metrics);
     }
 
     FeedFetcher(FeedFetchConfig config, FeedHttpClient httpClient, RobotsTxtParser robotsParser,
                 Sleeper sleeper, Clock clock) {
+        this(config, httpClient, robotsParser, sleeper, clock, null);
+    }
+
+    FeedFetcher(FeedFetchConfig config, FeedHttpClient httpClient, RobotsTxtParser robotsParser,
+                Sleeper sleeper, Clock clock, FeedlineMetrics metrics) {
         this.config = config;
         this.httpClient = httpClient;
         this.robotsParser = robotsParser;
         this.sleeper = sleeper;
         this.clock = clock;
         this.urlSafety = new UrlSafety(config.allowLoopback());
+        this.metrics = metrics;
     }
 
     /**
@@ -96,24 +108,28 @@ public class FeedFetcher {
             uri = URI.create(url);
         } catch (IllegalArgumentException e) {
             log.warn("Invalid URL {}: {}", url, e.getMessage());
+            recordFetchMetrics("error", 0);
             return FeedFetchResult.failure(0, url);
         }
         try {
             urlSafety.validate(uri);
         } catch (UrlSafety.UnsafeUrlException e) {
             log.warn("Unsafe feed URL {}: {}", url, e.getMessage());
+            recordFetchMetrics("error", 0);
             return FeedFetchResult.failure(0, url);
         }
         String origin = FeedFetchConfig.originOf(uri);
 
         if (origin == null) {
             log.error("Invalid URL: {}", url);
+            recordFetchMetrics("error", 0);
             return FeedFetchResult.failure(0, url);
         }
 
         // Check robots.txt
         if (!checkRobotsAllowed(origin, uri.getPath())) {
             log.info("Feed {} disallowed by robots.txt for generic agent", url);
+            recordFetchMetrics("error", 0);
             return FeedFetchResult.robotsDisallowed(url);
         }
 
@@ -121,7 +137,10 @@ public class FeedFetcher {
         enforcePerHostInterval(origin);
 
         // Fetch with retries
-        return fetchWithRetry(uri, etag, lastModified, 0);
+        long started = System.nanoTime();
+        FeedFetchResult result = fetchWithRetry(uri, etag, lastModified, 0);
+        recordFetchMetrics(result, started);
+        return result;
     }
 
     private boolean checkRobotsAllowed(String origin, String path) {
@@ -350,6 +369,32 @@ public class FeedFetcher {
         String path = uri.getPath() == null || uri.getPath().isEmpty() ? "/" : uri.getPath();
         if (origin == null || !checkRobotsAllowed(origin, path)) {
             throw new RobotsDisallowedException(uri.toString());
+        }
+    }
+
+
+    private void recordFetchMetrics(FeedFetchResult result, long startedNanos) {
+        long elapsedMs = (System.nanoTime() - startedNanos) / 1_000_000L;
+        String outcome;
+        if (result == null) {
+            outcome = "error";
+        } else if (result.httpCode() == 304) {
+            outcome = "not_modified";
+        } else if (result.ok()) {
+            outcome = "ok";
+        } else {
+            outcome = "error";
+        }
+        if (metrics != null) {
+            metrics.recordFetchRequest(outcome);
+            metrics.recordFetchDuration(elapsedMs);
+        }
+    }
+
+    private void recordFetchMetrics(String outcome, long elapsedMs) {
+        if (metrics != null) {
+            metrics.recordFetchRequest(outcome);
+            metrics.recordFetchDuration(elapsedMs);
         }
     }
 

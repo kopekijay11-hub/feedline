@@ -3,6 +3,7 @@ package ca.feedline.config;
 import ca.feedline.service.FeedFetchConfig;
 import ca.feedline.service.FeedFetcher;
 import ca.feedline.service.RobotsTxtParser;
+import ca.feedline.service.FeedlineMetrics;
 import ca.feedline.service.Sleeper;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -45,11 +46,11 @@ public class FeedConfig {
     }
 
     @Bean
-    public FeedFetcher feedFetcher(FeedFetchConfig config, Sleeper sleeper, Clock clock) {
+    public FeedFetcher feedFetcher(FeedFetchConfig config, Sleeper sleeper, Clock clock, FeedlineMetrics metrics) {
         // Create robots parser with config
         RobotsTxtParser robotsParser = new RobotsTxtParser(config);
 
         // Create fetcher with all dependencies
-        return new FeedFetcher(config, robotsParser, sleeper, clock);
+        return new FeedFetcher(config, robotsParser, sleeper, clock, metrics);
     }
 }

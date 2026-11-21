@@ -83,6 +83,14 @@ Unknown query parameters, malformed cursors, and bad ranges return `400 applicat
 
 ETag and Last-Modified are **bookmarks into the remote feed**. They advance only when an entire `200` poll ingests cleanly. If any item is skipped, the skip is recorded and the old bookmark is kept, so the next poll re-fetches the same feed version instead of permanently hiding the skipped item. A `304` never advances a bookmark either. Each item is written in its own `REQUIRES_NEW` transaction so a single malformed item cannot roll back its siblings.
 
+## Operator admin API
+
+`/api/v1/admin/**` is protected by the `X-Admin-Token` header (configurable via `feed.admin.header-name` and `FEED_ADMIN_API_KEY`). Missing or invalid tokens return `401 application/problem+json`; a blank/disabled configured token fails closed with `403`. Public endpoints are unaffected.
+
+- `GET /api/v1/admin/outbox/poisoned` — list poisoned outbox rows (page/size/topic)
+- `POST /api/v1/admin/outbox/poisoned/{id}/replay` — requeue one poisoned event
+- `POST /api/v1/admin/outbox/poisoned/replay-batch` — requeue up to `limit` oldest poisoned events
+
 ## Tests and CI
 
 - `mvn clean verify` — the full local gate: JDK `HttpServer`/MockWebServer wire tests, Testcontainers PostgreSQL and Kafka integration tests (all under Surefire), plus SpotBugs with `failOnError=true`.
