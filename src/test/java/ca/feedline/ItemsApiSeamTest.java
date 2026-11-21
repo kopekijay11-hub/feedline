@@ -342,9 +342,14 @@ class ItemsApiSeamTest {
         items.save(new Item(src, "g-range", "http://x/range", "Range item", "summary",
                 Instant.parse("2025-06-01T00:00:00Z"), Instant.parse("2025-06-02T00:00:00Z")));
 
-        JsonNode inverted = getJson("/api/v1/items?from=2025-12-31T00:00:00Z&to=2025-01-01T00:00:00Z&size=100");
-        assertThat(inverted.get("total").asLong()).isZero();
-        assertThat(inverted.get("items")).isEmpty();
+        MvcResult inverted = mockMvc.perform(get("/api/v1/items")
+                        .param("from", "2025-12-31T00:00:00Z")
+                        .param("to", "2025-01-01T00:00:00Z")
+                        .param("size", "100"))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        assertThat(inverted.getResponse().getContentType()).contains("problem+json");
+        assertThat(inverted.getResponse().getContentAsString()).contains("from must not be after to");
 
         MvcResult blankQueryResult = mockMvc.perform(get("/api/v1/items")
                         .param("q", " ")
@@ -353,6 +358,17 @@ class ItemsApiSeamTest {
                 .andReturn();
         JsonNode blankQuery = mapper.readTree(blankQueryResult.getResponse().getContentAsString());
         assertThat(blankQuery.get("total").asLong()).isEqualTo(items.count());
+    }
+
+    @Test
+    void invertedFetchedRange_returns400ProblemJson() throws Exception {
+        MvcResult inverted = mockMvc.perform(get("/api/v1/items")
+                        .param("fetchedFrom", "2025-12-31T00:00:00Z")
+                        .param("fetchedTo", "2025-01-01T00:00:00Z"))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        assertThat(inverted.getResponse().getContentType()).contains("problem+json");
+        assertThat(inverted.getResponse().getContentAsString()).contains("fetchedFrom must not be after fetchedTo");
     }
 
     @Test
