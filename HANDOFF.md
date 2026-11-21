@@ -63,3 +63,12 @@ M3 is merged on `main`. The full gate is green, the migration ordering hazard is
 - DTOs: `PoisonedOutboxEventDto`, `PoisonedOutboxPage`, `PoisonReplayResponse`.
 - Tests: `AdminOutboxSeamTest`.
 - Verification: `mvn clean verify` green, SpotBugs 0.
+
+## M4 Phase 3 — Multi-Instance Source Leasing
+
+- Branch: `feat/m4-poller-leases` (base `main` @ `116acb6`).
+- Added `V11__source_poller_leases.sql`: nullable `lease_owner`/`lease_until` columns and partial claim index.
+- Added typed `feed.poller.lease-duration` (default `PT2M`) and `feed.poller.worker-id` (default hostname + UUID) settings.
+- `FeedSourceRepository` claims due sources with `FOR UPDATE SKIP LOCKED` and releases leases.
+- `FeedPollerService` claims/releases leases, records `feedline.poller.leases.claimed.total` / `skipped.total`, and recovers expired leases.
+- Added `TwoPollerConcurrencyIntegrationTest`.

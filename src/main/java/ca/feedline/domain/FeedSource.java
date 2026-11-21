@@ -58,6 +58,12 @@ public class FeedSource {
     @Column(name = "last_new_item_at")
     private Instant lastNewItemAt;
 
+    @Column(name = "lease_owner", length = 128)
+    private String leaseOwner;
+
+    @Column(name = "lease_until")
+    private Instant leaseUntil;
+
     public FeedSource() {
     }
 
@@ -152,5 +158,34 @@ public class FeedSource {
 
     public void setLastNewItemAt(Instant lastNewItemAt) {
         this.lastNewItemAt = lastNewItemAt;
+    }
+
+    public String getLeaseOwner() {
+        return leaseOwner;
+    }
+
+    public void setLeaseOwner(String leaseOwner) {
+        this.leaseOwner = leaseOwner;
+    }
+
+    public Instant getLeaseUntil() {
+        return leaseUntil;
+    }
+
+    public void setLeaseUntil(Instant leaseUntil) {
+        this.leaseUntil = leaseUntil;
+    }
+
+    // Alias for poll-attempt timestamp used by due/lease queries.
+    public Instant getLastPolledAt() {
+        return lastAttemptAt;
+    }
+
+    public void setLastPolledAt(Instant lastPolledAt) {
+        this.lastAttemptAt = lastPolledAt;
+    }
+
+    public boolean isLeaseExpired(Instant now) {
+        return leaseUntil == null || !leaseUntil.isAfter(now);
     }
 }

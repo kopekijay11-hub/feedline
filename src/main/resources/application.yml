@@ -108,6 +108,10 @@ feed:
     api-key: ${FEED_ADMIN_API_KEY:feedline-admin-dev-token}
     header-name: X-Admin-Token
 
+  poller:
+    lease-duration: 2m
+    worker-id: ""
+
   # Feed sources
   sources:
     - name: BBC News World

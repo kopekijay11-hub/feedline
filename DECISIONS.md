@@ -79,3 +79,17 @@ Metrics use low-cardinality outcome tags only (`published`, `retry_scheduled`, `
 
 **Admin replay idempotency**
 Single replay requires the row to exist and be currently poisoned; a missing row returns `404`, while a published or pending (non-poisoned) row returns `409 Conflict` rather than silently requeueing. Replay resets `poisoned_at`, `published_at`, `attempts`, `next_attempt_at`, and `last_error`, and increments `replayed_count` plus `feedline.outbox.events.total{outcome="replayed"}`.
+
+## M4 Phase 3 — Multi-Instance Source Leasing
+
+**Why V11 is the next migration**
+The sequence is V1–V6, V8, V9, V10 (V7 was skipped during the M3 merge). V11 follows V10 and adds nullable `lease_owner`/`lease_until` columns plus a partial claim index. No historical rows are rewritten; unleased rows (NULL) are immediately claimable.
+
+**Why `FOR UPDATE SKIP LOCKED`**
+Multiple poller replicas select due, enabled, unleased (or expired-lease) rows in a short transaction with `FOR UPDATE SKIP LOCKED`. Locked and already-leased rows are skipped rather than blocking, so replicas make progress without deadlocking. Each claimed row has `lease_owner`/`lease_until` set immediately, bounding duplicate fetches to the lease window.
+
+**Why leases are released after processing**
+After a poll succeeds, returns 304, or fails, the lease is cleared in a follow-up update so healthy sources do not wait for lease expiry. An ungraceful crash leaves `lease_until` in place; once it expires another replica safely reclaims the source. This gives crash recovery without manual intervention.
+
+**Why `last_attempt_at` drives due-ness**
+The schema has no per-source `poll_interval_seconds`; due-ness reuses the existing `last_attempt_at` timestamp (NULL means never polled, hence due). Lease expiry is the recovery mechanism for stuck workers.
