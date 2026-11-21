@@ -93,3 +93,20 @@ After a poll succeeds, returns 304, or fails, the lease is cleared in a follow-u
 
 **Why `last_attempt_at` drives due-ness**
 The schema has no per-source `poll_interval_seconds`; due-ness reuses the existing `last_attempt_at` timestamp (NULL means never polled, hence due). Lease expiry is the recovery mechanism for stuck workers.
+
+## M4 Phase 4 — Robots Cache & Wildcard Matching, Normalizer Sanitization & Caps, Query Cursor Hardening
+
+**Bounded robots cache**
+`RobotsTxtParser` now uses a bounded `LinkedHashMap` (access order) with configurable `feed.robots.cache-max-entries` (default 256) and `feed.robots.cache-ttl` (default `PT1H`), evicting the least-recently-used origin when full and re-evaluating after TTL expiry. Errors remain uncached.
+
+**Bot-specific group selection**
+Parsing now builds user-agent groups; a bot-specific group matching the configured user-agent prefix is selected when present, otherwise wildcard `*` groups are used. Bot and wildcard rules are not merged across unrelated groups.
+
+**Safe path matching**
+`*` wildcards and trailing `$` anchors are evaluated with escaped literal matching (no regex injection / catastrophic backtracking). Longest match wins, with `Allow` winning ties.
+
+**Normalizer hardening**
+`FeedNormalizer` strips HTML tags, decodes HTML/XML entities, and enforces configurable caps for title/summary/link/GUID. Atom `<content>`/`<summary>` and RSS `<description>`/`<content:encoded>` fallbacks are supported. Synthetic GUIDs incorporate link/title/published date and an optional entry index.
+
+**Query cursor alignment**
+Keyset pagination keeps cursor predicates alongside active filters; malformed cursors and out-of-range sizes continue to return RFC 7807 `400` responses.

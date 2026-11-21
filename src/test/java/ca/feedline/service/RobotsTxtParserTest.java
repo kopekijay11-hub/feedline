@@ -100,7 +100,7 @@ class RobotsTxtParserTest {
                 .setBody("User-agent: *\nDisallow: /\n"));
 
         assertFalse(parser.isAllowed(origin, "/feed"));
-        clock.advance(Duration.ofHours(23).plusMinutes(59));
+        clock.advance(Duration.ofMinutes(59));
         assertFalse(parser.isAllowed(origin, "/feed"), "rules stay cached before TTL expiry");
         assertEquals(1, server.getRequestCount());
 

@@ -89,6 +89,10 @@ public class FeedProperties {
 
     private Poller poller = new Poller();
 
+    private Robots robots = new Robots();
+
+    private Normalizer normalizer = new Normalizer();
+
     public List<Source> getSources() {
         return sources;
     }
@@ -217,6 +221,22 @@ public class FeedProperties {
         this.poller = poller == null ? new Poller() : poller;
     }
 
+    public Robots getRobots() {
+        return robots;
+    }
+
+    public void setRobots(Robots robots) {
+        this.robots = robots == null ? new Robots() : robots;
+    }
+
+    public Normalizer getNormalizer() {
+        return normalizer;
+    }
+
+    public void setNormalizer(Normalizer normalizer) {
+        this.normalizer = normalizer == null ? new Normalizer() : normalizer;
+    }
+
     /**
      * Outbox configuration.
      */
@@ -327,6 +347,72 @@ public class FeedProperties {
 
         public void setWorkerId(String workerId) {
             this.workerId = workerId == null ? "" : workerId;
+        }
+    }
+
+    /**
+     * Robots.txt cache configuration.
+     */
+    public static class Robots {
+        private int cacheMaxEntries = 256;
+        private Duration cacheTtl = Duration.ofHours(1);
+
+        public int getCacheMaxEntries() {
+            return cacheMaxEntries;
+        }
+
+        public void setCacheMaxEntries(int cacheMaxEntries) {
+            this.cacheMaxEntries = cacheMaxEntries <= 0 ? 256 : cacheMaxEntries;
+        }
+
+        public Duration getCacheTtl() {
+            return cacheTtl;
+        }
+
+        public void setCacheTtl(Duration cacheTtl) {
+            this.cacheTtl = cacheTtl == null ? Duration.ofHours(1) : cacheTtl;
+        }
+    }
+
+    /**
+     * FeedNormalizer field caps.
+     */
+    public static class Normalizer {
+        private int titleMaxLength = 1000;
+        private int summaryMaxLength = 4000;
+        private int linkMaxLength = 1024;
+        private int guidMaxLength = 512;
+
+        public int getTitleMaxLength() {
+            return titleMaxLength;
+        }
+
+        public void setTitleMaxLength(int titleMaxLength) {
+            this.titleMaxLength = titleMaxLength <= 0 ? 1000 : titleMaxLength;
+        }
+
+        public int getSummaryMaxLength() {
+            return summaryMaxLength;
+        }
+
+        public void setSummaryMaxLength(int summaryMaxLength) {
+            this.summaryMaxLength = summaryMaxLength <= 0 ? 4000 : summaryMaxLength;
+        }
+
+        public int getLinkMaxLength() {
+            return linkMaxLength;
+        }
+
+        public void setLinkMaxLength(int linkMaxLength) {
+            this.linkMaxLength = linkMaxLength <= 0 ? 1024 : linkMaxLength;
+        }
+
+        public int getGuidMaxLength() {
+            return guidMaxLength;
+        }
+
+        public void setGuidMaxLength(int guidMaxLength) {
+            this.guidMaxLength = guidMaxLength <= 0 ? 512 : guidMaxLength;
         }
     }
 

@@ -60,3 +60,13 @@ Milestone 4 Phase 3 — Multi-instance source leasing.
 - `V11__source_poller_leases.sql`: nullable `lease_owner`/`lease_until` plus partial claim index
 - `FOR UPDATE SKIP LOCKED` claim-and-release leasing with configurable duration and worker id
 - Expired-lease crash recovery and contention metrics
+
+## [0.7.0] — 2026-11-20
+
+Milestone 4 Phase 4 — Robots cache & wildcard matching, normalizer sanitization & caps, query cursor hardening.
+
+- Bounded LRU robots cache with configurable max entries and TTL
+- Bot-specific user-agent group selection with wildcard fallback
+- Safe `*` wildcard and `$` anchor path matching
+- `FeedNormalizer` HTML stripping, entity decoding, configurable field caps, Atom/RSS fallbacks, deterministic synthetic GUIDs
+- Query cursor pagination keeps active filters bound
