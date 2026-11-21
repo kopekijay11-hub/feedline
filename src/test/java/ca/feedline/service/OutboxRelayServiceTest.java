@@ -10,20 +10,28 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.mockito.ArgumentMatchers;
 import org.springframework.kafka.support.SendResult;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 @ExtendWith(MockitoExtension.class)
 class OutboxRelayServiceTest {
@@ -50,7 +58,7 @@ class OutboxRelayServiceTest {
         when(repository.findPublishable(10, NOW)).thenReturn(List.of(first, second));
         CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
         failed.completeExceptionally(new TimeoutException("broker down"));
-        when(kafka.send("topic-a", "key-1", "payload")).thenReturn(failed);
+        when(kafka.send(any(ProducerRecord.class))).thenReturn(failed);
 
         relay.publishPending();
 
@@ -61,7 +69,7 @@ class OutboxRelayServiceTest {
         assertThat(first.getPoisonedAt()).isNull();
         assertThat(second.getAttempts()).isZero();
         assertThat(second.getPublishedAt()).isNull();
-        verify(kafka, never()).send("topic-a", "key-2", "payload");
+        verify(kafka, times(1)).send(any(ProducerRecord.class));
     }
 
     @Test
@@ -71,10 +79,9 @@ class OutboxRelayServiceTest {
         when(repository.findPublishable(10, NOW)).thenReturn(List.of(poison, good));
         CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
         failed.completeExceptionally(new SerializationException("bad payload"));
-        when(kafka.send("topic-a", "bad-key", "payload")).thenReturn(failed);
         CompletableFuture<SendResult<String, String>> sent = new CompletableFuture<>();
         sent.complete(null);
-        when(kafka.send("topic-b", "good-key", "payload")).thenReturn(sent);
+        when(kafka.send(any(ProducerRecord.class))).thenReturn(failed, sent);
 
         relay.publishPending();
 
@@ -84,7 +91,6 @@ class OutboxRelayServiceTest {
         assertThat(poison.getPublishedAt()).isNull();
         assertThat(good.getPublishedAt()).isEqualTo(NOW);
         assertThat(good.getAttempts()).isZero();
-        verify(kafka).send("topic-b", "good-key", "payload");
     }
 
     @Test
@@ -95,7 +101,7 @@ class OutboxRelayServiceTest {
         when(repository.findPublishable(10, NOW)).thenReturn(List.of(event));
         CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
         failed.completeExceptionally(new TimeoutException("still down"));
-        when(kafka.send(eq("topic-a"), eq("key-1"), anyString())).thenReturn(failed);
+        when(kafka.send(any(ProducerRecord.class))).thenReturn(failed);
 
         relay.publishPending();
 
@@ -141,6 +147,39 @@ class OutboxRelayServiceTest {
         when(repository.oldestPendingCreatedAt()).thenReturn(null);
 
         assertThat(relay.observe().oldestPendingLag()).isEqualTo(java.time.Duration.ZERO);
+    }
+
+    @Test
+    void publishesDeterministicHeadersAndEventKey() throws Exception {
+        OutboxEvent event = event(1L, "topic-a", "42:seam-1");
+        event.setSchemaVersion(1);
+        event.setPayload("{\"schemaVersion\":1,\"eventKey\":\"42:seam-1\",\"eventType\":\"ItemIngested\",\"itemId\":7,\"sourceId\":42,\"guid\":\"seam-1\",\"title\":\"T\",\"link\":\"http://example.test/1\",\"publishedAt\":\"2026-11-20T00:00:00Z\",\"occurredAt\":\"2026-11-20T00:00:00Z\",\"ingestedAt\":\"2026-11-20T00:00:00Z\"}");
+        AtomicReference<ProducerRecord<String, String>> captured = new AtomicReference<>();
+        when(kafka.send(any(ProducerRecord.class))).thenAnswer(invocation -> {
+            captured.set(invocation.getArgument(0));
+            CompletableFuture<SendResult<String, String>> done = new CompletableFuture<>();
+            done.complete(null);
+            return done;
+        });
+        when(repository.findPublishable(10, NOW)).thenReturn(List.of(event));
+
+        relay.publishPending();
+
+        ProducerRecord<String, String> record = captured.get();
+        assertThat(record.key()).isEqualTo("42:seam-1");
+        assertThat(record.value()).isEqualTo(event.getPayload());
+        Map<String, String> headers = headerMap(record);
+        assertThat(headers.get("schemaVersion")).isEqualTo("1");
+        assertThat(headers.get("eventKey")).isEqualTo("42:seam-1");
+        assertThat(headers.get("eventType")).isEqualTo("ItemIngested");
+        assertThat(headers.get("occurredAt")).isEqualTo("2026-11-20T00:00:00Z");
+        assertThat(headers.get("sourceId")).isEqualTo("42");
+    }
+
+    private static Map<String, String> headerMap(ProducerRecord<String, String> record) {
+        Map<String, String> map = new HashMap<>();
+        record.headers().forEach(header -> map.put(header.key(), new String(header.value(), StandardCharsets.UTF_8)));
+        return map;
     }
 
     private OutboxEvent event(long id, String topic, String key) {

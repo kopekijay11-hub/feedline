@@ -22,6 +22,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 
 @Service
@@ -121,18 +122,23 @@ public class ItemIngestService {
     }
 
     private OutboxEvent outboxEventFor(Item item) {
+        String eventKey = item.getSource().getId() + ":" + item.getGuid();
         ItemIngestedEvent event = new ItemIngestedEvent(
+                1,
+                eventKey,
+                "ItemIngested",
                 item.getId(),
                 item.getSource().getId(),
                 item.getGuid(),
                 item.getTitle(),
                 item.getLink(),
                 item.getPublishedAt(),
-                item.getFetchedAt());
+                item.getFetchedAt().truncatedTo(ChronoUnit.SECONDS),
+                item.getFetchedAt().truncatedTo(ChronoUnit.SECONDS));
         try {
-            return new OutboxEvent(item.getId(), topic,
-                    item.getSource().getId() + ":" + item.getGuid(),
-                    objectMapper.writeValueAsString(event));
+            OutboxEvent outbox = new OutboxEvent(item.getId(), topic, eventKey, objectMapper.writeValueAsString(event));
+            outbox.setSchemaVersion(1);
+            return outbox;
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Could not serialize ingested item event", e);
         }

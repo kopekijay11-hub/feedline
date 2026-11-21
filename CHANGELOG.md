@@ -1,5 +1,9 @@
 # Changelog
 
+## M5 Phase 1 — Outbox event schema, headers & deterministic eventKey.
+- Added schema/version identifiers, eventKey, eventType, occurredAt, and sourceId to outbox payloads and Kafka headers
+- Documented downstream consumer idempotency contract
+
 All notable changes to Feedline are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions correspond to project milestones.
 
 ## [0.3.0] — 2026-11-20

@@ -82,3 +82,10 @@ M3 is merged on `main`. The full gate is green, the migration ordering hazard is
 - `FeedNormalizer` HTML stripping/entity decoding, configurable field caps, Atom/RSS content fallbacks, deterministic synthetic GUIDs with index support.
 - Query cursor pagination keeps filters bound; malformed cursor/size handling unchanged (RFC 7807 400).
 - Verification: `mvn clean verify` green, SpotBugs 0.
+
+
+## M5 Phase 1 — Outbox Event Schema, Headers & Deterministic eventKey
+- `ItemIngestedEvent` now carries `schemaVersion`, `eventKey`, `eventType`, and `occurredAt` alongside existing fields.
+- `OutboxRelayService` publishes Kafka records with headers `schemaVersion`, `eventKey`, `eventType`, `occurredAt`, and `sourceId` (as applicable).
+- `eventKey` is deterministic (`sourceId:guid`) across retries and admin poison replays; only retry metadata changes on replay.
+- Consumer idempotency contract documented in `DECISIONS.md`.

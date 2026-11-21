@@ -31,6 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -228,6 +229,48 @@ class AdminOutboxSeamTest {
             assertThat(records).extracting(ConsumerRecord::key)
                     .containsExactlyInAnyOrder("batch-0", "batch-1", "batch-2");
         }
+    }
+
+    @Test
+    void replayPreservesEventKeyAndHeaders() throws Exception {
+        String eventKey = "42:seam-replay";
+        String payload = "{\"schemaVersion\":1,\"eventKey\":\"" + eventKey + "\",\"eventType\":\"ItemIngested\","
+                + "\"itemId\":7,\"sourceId\":42,\"guid\":\"seam-replay\",\"title\":\"Replayed\","
+                + "\"link\":\"http://example.test/replay\",\"publishedAt\":\"2026-11-20T00:00:00Z\","
+                + "\"occurredAt\":\"2026-11-20T00:00:00Z\",\"ingestedAt\":\"2026-11-20T00:00:00Z\"}";
+        OutboxEvent poisoned = new OutboxEvent(42L, TOPIC, eventKey, payload);
+        poisoned.setSchemaVersion(1);
+        poisoned.markPoisoned(Instant.now());
+        poisoned = outboxEvents.saveAndFlush(poisoned);
+
+        mockMvc.perform(post("/api/v1/admin/outbox/poisoned/" + poisoned.getId() + "/replay")
+                        .header("X-Admin-Token", TOKEN))
+                .andExpect(status().isOk());
+
+        OutboxEvent requeued = outboxEvents.findById(poisoned.getId()).orElseThrow();
+        assertThat(requeued.getEventKey()).isEqualTo(eventKey);
+        assertThat(requeued.getReplayedCount()).isEqualTo(1);
+        assertThat(requeued.getPoisonedAt()).isNull();
+        assertThat(requeued.getPublishedAt()).isNull();
+
+        try (KafkaConsumer<String, String> consumer = consumerAtEnd()) {
+            relay.publishPending();
+            List<ConsumerRecord<String, String>> records = collect(consumer, 1);
+            assertThat(records).hasSize(1);
+            assertThat(records.get(0).key()).isEqualTo(eventKey);
+            assertThat(records.get(0).value()).isEqualTo(payload);
+            assertThat(records.get(0).headers().lastHeader("schemaVersion").value())
+                    .isEqualTo("1".getBytes(StandardCharsets.UTF_8));
+            assertThat(records.get(0).headers().lastHeader("eventKey").value())
+                    .isEqualTo(eventKey.getBytes(StandardCharsets.UTF_8));
+            assertThat(records.get(0).headers().lastHeader("eventType").value())
+                    .isEqualTo("ItemIngested".getBytes(StandardCharsets.UTF_8));
+            assertThat(records.get(0).headers().lastHeader("occurredAt").value())
+                    .isEqualTo("2026-11-20T00:00:00Z".getBytes(StandardCharsets.UTF_8));
+            assertThat(records.get(0).headers().lastHeader("sourceId").value())
+                    .isEqualTo("42".getBytes(StandardCharsets.UTF_8));
+        }
+        assertThat(outboxEvents.findById(poisoned.getId()).orElseThrow().getPublishedAt()).isNotNull();
     }
 
     private void ensureTopic() throws Exception {

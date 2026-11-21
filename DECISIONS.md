@@ -110,3 +110,17 @@ Parsing now builds user-agent groups; a bot-specific group matching the configur
 
 **Query cursor alignment**
 Keyset pagination keeps cursor predicates alongside active filters; malformed cursors and out-of-range sizes continue to return RFC 7807 `400` responses.
+
+## M5 Phase 1 — Outbox Event Schema, Headers & Deterministic eventKey
+
+**Deterministic eventKey**
+`ItemIngestService` derives `eventKey` as `sourceId:guid` at ingest time and stores it on both the Kafka message key and the `outbox_events.event_key` column. The same value survives retries and admin poison replay because `AdminOutboxService`/`OutboxRelayService` only update retry metadata (`attempts`, `next_attempt_at`, `last_error`, `poisoned_at`, `published_at`, `replayed_count`) and never rewrite `event_key`, `topic`, or `payload`. The unique `(topic, event_key)` constraint makes duplicate outbox rows impossible.
+
+**Schema versioning and headers**
+Each published record carries the stored `schemaVersion` (currently 1) plus `eventKey`, `eventType`, `occurredAt` (UTC ISO-8601 instant), and `sourceId` (when available) both as top-level JSON fields in `ItemIngestedEvent` and as Kafka record headers with the same names. Existing fields (`itemId`, `guid`, `title`, `link`, `publishedAt`, `ingestedAt`) remain for backward compatibility. Headers are UTF-8 string bytes.
+
+**Consumer idempotency contract**
+Downstream consumers must dedupe by the Kafka message key / `eventKey` (e.g. `INSERT ... ON CONFLICT (event_key) DO NOTHING` or an equivalent unique-key upsert). Because delivery is at-least-once (relay crash between Kafka ack and DB mark), duplicate deliveries and replayed poison events are expected and safe. Consumers should treat `schemaVersion` as the payload evolution marker and ignore unknown fields.
+
+**Low cardinality**
+Logging and metric tags remain low-cardinality and never include raw payloads, GUIDs, URLs, or tokens.
