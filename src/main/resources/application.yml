@@ -112,6 +112,16 @@ feed:
     lease-duration: 2m
     worker-id: ""
 
+  robots:
+    cache-max-entries: 256
+    cache-ttl: 1h
+
+  normalizer:
+    title-max-length: 1000
+    summary-max-length: 4000
+    link-max-length: 1024
+    guid-max-length: 512
+
   # Feed sources
   sources:
     - name: BBC News World

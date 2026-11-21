@@ -72,3 +72,12 @@ M3 is merged on `main`. The full gate is green, the migration ordering hazard is
 - `FeedSourceRepository` claims due sources with `FOR UPDATE SKIP LOCKED` and releases leases.
 - `FeedPollerService` claims/releases leases, records `feedline.poller.leases.claimed.total` / `skipped.total`, and recovers expired leases.
 - Added `TwoPollerConcurrencyIntegrationTest`.
+
+## M4 Phase 4 — Robots Cache & Wildcard Matching, Normalizer Sanitization & Caps, Query Cursor Hardening
+
+- Branch: `feat/m4-parser-query-polish` (base `main` @ `009c62a`).
+- Bounded robots cache (`feed.robots.cache-max-entries`, `feed.robots.cache-ttl`) with LRU eviction and TTL expiry.
+- Bot-specific vs wildcard user-agent group selection; safe `*`/`$` path matching.
+- `FeedNormalizer` HTML stripping/entity decoding, configurable field caps, Atom/RSS content fallbacks, deterministic synthetic GUIDs with index support.
+- Query cursor pagination keeps filters bound; malformed cursor/size handling unchanged (RFC 7807 400).
+- Verification: `mvn clean verify` green, SpotBugs 0.

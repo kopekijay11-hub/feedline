@@ -122,8 +122,15 @@ class PerItemIngestIsolationTest {
     void overLengthTitle_isSkippedInOwnTransaction_goodItemsCommitAndValidatorsDoNotAdvance() {
         etag.set("\"poison-etag\"");
         body.set(feed(entry("good-1", "Good one"),
-                entry("poison-long", "x".repeat(1001)),
+                entry("poison-long", "poison-long"),
                 entry("good-2", "Good two")));
+        doAnswer(invocation -> {
+            ca.feedline.domain.Item item = (ca.feedline.domain.Item) invocation.callRealMethod();
+            if ("poison-long".equals(item.getGuid())) {
+                item.setTitle("x".repeat(1001));
+            }
+            return item;
+        }).when(normalizer).normalize(any(), any(), any());
 
         int saved = poller.pollSingleSource(source());
 
@@ -216,8 +223,15 @@ class PerItemIngestIsolationTest {
                 .when(skipRecorder).record(any(), anyString(), anyString(), any());
         etag.set("\"poison-etag\"");
         body.set(feed(entry("good-1", "Good one"),
-                entry("poison-long", "y".repeat(1001)),
+                entry("poison-long", "poison-long"),
                 entry("good-2", "Good two")));
+        doAnswer(invocation -> {
+            ca.feedline.domain.Item item = (ca.feedline.domain.Item) invocation.callRealMethod();
+            if ("poison-long".equals(item.getGuid())) {
+                item.setTitle("y".repeat(1001));
+            }
+            return item;
+        }).when(normalizer).normalize(any(), any(), any());
 
         int saved = poller.pollSingleSource(source());
 
@@ -254,7 +268,14 @@ class PerItemIngestIsolationTest {
     @Test
     void samePoisonItemOnNextPoll_upsertsOccurrences() {
         etag.set("\"poison-etag\"");
-        body.set(feed(entry("good-1", "Good one"), entry("poison-long", "y".repeat(1001))));
+        body.set(feed(entry("good-1", "Good one"), entry("poison-long", "poison-long")));
+        doAnswer(invocation -> {
+            ca.feedline.domain.Item item = (ca.feedline.domain.Item) invocation.callRealMethod();
+            if ("poison-long".equals(item.getGuid())) {
+                item.setTitle("y".repeat(1001));
+            }
+            return item;
+        }).when(normalizer).normalize(any(), any(), any());
 
         assertThat(poller.pollSingleSource(source())).isEqualTo(1);
         assertThat(poller.pollSingleSource(source())).isZero();

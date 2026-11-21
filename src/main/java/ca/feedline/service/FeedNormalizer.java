@@ -1,12 +1,13 @@
 package ca.feedline.service;
 
+import ca.feedline.config.FeedProperties;
 import ca.feedline.domain.FeedSource;
 import ca.feedline.domain.Item;
 import com.rometools.rome.feed.synd.SyndContent;
 import com.rometools.rome.feed.synd.SyndEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
+import org.springframework.web.util.HtmlUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -14,34 +15,85 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
+import java.util.List;
 
-/**
- * Turns a Rome {@link SyndEntry} into an {@link Item}.
- *
- * <p>In this version of Rome (1.18) the RSS {@code <guid>} element is carried by
- * the feed processor as the entry <i>uri</i> (see
- * {@link SyndEntry#getUri()}) while the article link is carried as the entry
- * <i>link</i> (see {@link SyndEntry#getLink()}). The guid is therefore read
- * from {@code entry.getUri()} and, only when that is missing, the entry link is
- * used as the fallback for the guid - as required by the project spec.
- *
- * <p>When an entry has no guid and no link, a synthetic GUID is assigned that is
- * DETERMINISTIC - derived from stable content (the link if present, else title + published date).
- * This ensures the same entry on a later poll dedupes instead of re-inserting.
- */
-@Component
 public class FeedNormalizer {
 
     private static final Logger log = LoggerFactory.getLogger(FeedNormalizer.class);
 
-    /** Used only if a feed genuinely has no guid, no link, and no title. */
     private static final String DEFAULT_LINK = "https://example.com/";
-
-    /** Default published date for synthetic GUID calculation. */
     private static final String DEFAULT_PUBLISHED = "1970-01-01T00:00:00Z";
 
+    private static final int DEFAULT_TITLE_MAX = 1000;
+    private static final int DEFAULT_SUMMARY_MAX = 4000;
+    private static final int DEFAULT_LINK_MAX = 1024;
+    private static final int DEFAULT_GUID_MAX = 512;
+
+    private final int titleMax;
+    private final int summaryMax;
+    private final int linkMax;
+    private final int guidMax;
+
+    public FeedNormalizer() {
+        this(DEFAULT_TITLE_MAX, DEFAULT_SUMMARY_MAX, DEFAULT_LINK_MAX, DEFAULT_GUID_MAX);
+    }
+
+    public FeedNormalizer(int titleMax, int summaryMax, int linkMax) {
+        this(titleMax, summaryMax, linkMax, DEFAULT_GUID_MAX);
+    }
+
+    public FeedNormalizer(int titleMax, int summaryMax, int linkMax, int guidMax) {
+        this.titleMax = titleMax > 0 ? titleMax : DEFAULT_TITLE_MAX;
+        this.summaryMax = summaryMax > 0 ? summaryMax : DEFAULT_SUMMARY_MAX;
+        this.linkMax = linkMax > 0 ? linkMax : DEFAULT_LINK_MAX;
+        this.guidMax = guidMax > 0 ? guidMax : DEFAULT_GUID_MAX;
+    }
+
+    public FeedNormalizer(FeedProperties.Normalizer normalizer) {
+        this(normalizer == null ? DEFAULT_TITLE_MAX : normalizer.getTitleMaxLength(),
+                normalizer == null ? DEFAULT_SUMMARY_MAX : normalizer.getSummaryMaxLength(),
+                normalizer == null ? DEFAULT_LINK_MAX : normalizer.getLinkMaxLength(),
+                normalizer == null ? DEFAULT_GUID_MAX : normalizer.getGuidMaxLength());
+    }
+
+    public int getTitleMax() {
+        return titleMax;
+    }
+
+    public int getTitleMaxLength() {
+        return titleMax;
+    }
+
+    public int getSummaryMax() {
+        return summaryMax;
+    }
+
+    public int getSummaryMaxLength() {
+        return summaryMax;
+    }
+
+    public int getLinkMax() {
+        return linkMax;
+    }
+
+    public int getLinkMaxLength() {
+        return linkMax;
+    }
+
+    public int getGuidMax() {
+        return guidMax;
+    }
+
+    public int getGuidMaxLength() {
+        return guidMax;
+    }
+
     public Item normalize(SyndEntry entry, FeedSource source, Instant fetchedAt) {
-        String guid = guidFor(entry);
+        return normalize(entry, source, fetchedAt, -1);
+    }
+
+    public Item normalize(SyndEntry entry, FeedSource source, Instant fetchedAt, int index) {
+        String guid = guidFor(entry, index);
         String link = linkOf(entry);
         String title = titleOf(entry);
         String summary = summaryOf(entry);
@@ -56,20 +108,19 @@ public class FeedNormalizer {
     }
 
     public String guidFor(SyndEntry entry) {
-        String guid = guidOf(entry);
+        return guidFor(entry, -1);
+    }
+
+    public String guidFor(SyndEntry entry, int index) {
+        String guid = sanitize(guidOf(entry));
         if (guid != null && !guid.isBlank()) {
-            return guid;
+            return cap(guid, guidMax);
         }
-        String synthetic = syntheticGuid(linkOf(entry), titleOf(entry), publishedAtOf(entry));
+        String synthetic = syntheticGuid(linkOf(entry), titleOf(entry), publishedAtOf(entry), index);
         log.debug("Entry '{}' has no guid; assigned synthetic guid: {}", titleOf(entry), synthetic);
         return synthetic;
     }
 
-    /**
-     * GUID of the entry: Rome exposes the RSS {@code <guid>} value as the entry
-     * uri, so the uri is preferred and the entry link is the documented fall
-     * back when the guid is missing.
-     */
     private String guidOf(SyndEntry entry) {
         String uri = entry.getUri();
         if (uri != null && !uri.isBlank()) {
@@ -80,21 +131,40 @@ public class FeedNormalizer {
 
     private String linkOf(SyndEntry entry) {
         String link = entry.getLink();
-        return link == null || link.isBlank() ? null : link;
+        String sanitized = sanitize(link);
+        return sanitized == null || sanitized.isBlank() ? null : sanitized;
     }
 
     private String titleOf(SyndEntry entry) {
         String title = entry.getTitle();
-        return title == null ? "" : title;
+        String sanitized = sanitize(title);
+        if (sanitized == null || sanitized.isBlank()) {
+            sanitized = "";
+        }
+        return cap(sanitized, titleMax);
     }
 
     private String summaryOf(SyndEntry entry) {
+        String value = null;
         SyndContent description = entry.getDescription();
-        if (description == null) {
+        if (description != null && description.getValue() != null && !description.getValue().isBlank()) {
+            value = description.getValue();
+        }
+        if (value == null || value.isBlank()) {
+            List<SyndContent> contents = entry.getContents();
+            if (contents != null) {
+                for (SyndContent content : contents) {
+                    if (content != null && content.getValue() != null && !content.getValue().isBlank()) {
+                        value = content.getValue();
+                        break;
+                    }
+                }
+            }
+        }
+        if (value == null || value.isBlank()) {
             return null;
         }
-        String value = description.getValue();
-        return value == null || value.isBlank() ? null : value;
+        return cap(sanitize(value), summaryMax);
     }
 
     private Instant publishedAtOf(SyndEntry entry) {
@@ -106,44 +176,46 @@ public class FeedNormalizer {
         return updated == null ? null : updated.toInstant();
     }
 
-    /**
-     * Generate a deterministic synthetic GUID from stable content.
-     *
-     * <p>The derivation follows the requirement: "derived from stable content
-     * (the link if present, else title + published date)".
-     *
-     * <p>Algorithm:
-     * <ul>
-     *   <li>If link is present and non-blank, use SHA-256 hash of the link</li>
-     *   <li>Else, use SHA-256 hash of (title + "|" + published date)</li>
-     *   <li>If title is also missing, use SHA-256 hash of default string</li>
-     * </ul>
-     *
-     * @param link the entry link (may be null)
-     * @param title the entry title (may be null or empty)
-     * @param publishedAt the entry published date (may be null)
-     * @return a deterministic synthetic GUID
-     */
-    private String syntheticGuid(String link, String title, Instant publishedAt) {
+    private String syntheticGuid(String link, String title, Instant publishedAt, int index) {
+        String sanitizedLink = sanitize(link);
+        String sanitizedTitle = sanitize(title);
         String input;
-        
-        if (link != null && !link.isBlank()) {
-            // Use link if present
-            input = "link:" + link;
+        if (sanitizedLink != null && !sanitizedLink.isBlank()) {
+            input = "link:" + sanitizedLink;
         } else {
-            // Use title + published date
-            String publishedStr = publishedAt != null 
-                ? publishedAt.toString() 
-                : DEFAULT_PUBLISHED;
-            input = "title:" + (title != null ? title : "") + "|published:" + publishedStr;
+            String publishedStr = publishedAt != null ? publishedAt.toString() : DEFAULT_PUBLISHED;
+            input = "title:" + (sanitizedTitle == null ? "" : sanitizedTitle) + "|published:" + publishedStr;
         }
-        
+        if (index >= 0) {
+            input = input + "|index:" + index;
+        }
         return sha256(input);
     }
 
-    /**
-     * Compute SHA-256 hash of a string and return as hex.
-     */
+    private String sanitize(String value) {
+        if (value == null) {
+            return null;
+        }
+        String s = value.replaceAll("<[^>]*>", "");
+        s = HtmlUtils.htmlUnescape(s);
+        s = s.replace("\u0000", "");
+        s = s.trim();
+        if (s.isEmpty()) {
+            return null;
+        }
+        return s;
+    }
+
+    private String cap(String value, int max) {
+        if (value == null) {
+            return null;
+        }
+        if (value.length() <= max) {
+            return value;
+        }
+        return value.substring(0, max);
+    }
+
     private String sha256(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -151,7 +223,6 @@ public class FeedNormalizer {
             HexFormat hex = HexFormat.of();
             return hex.formatHex(hash);
         } catch (NoSuchAlgorithmException e) {
-            // SHA-256 is always available
             throw new IllegalStateException("SHA-256 not available", e);
         }
     }

@@ -2,6 +2,7 @@ package ca.feedline.config;
 
 import ca.feedline.service.FeedFetchConfig;
 import ca.feedline.service.FeedFetcher;
+import ca.feedline.service.FeedNormalizer;
 import ca.feedline.service.RobotsTxtParser;
 import ca.feedline.service.FeedlineMetrics;
 import ca.feedline.service.Sleeper;
@@ -46,11 +47,16 @@ public class FeedConfig {
     }
 
     @Bean
-    public FeedFetcher feedFetcher(FeedFetchConfig config, Sleeper sleeper, Clock clock, FeedlineMetrics metrics) {
+    public FeedFetcher feedFetcher(FeedFetchConfig config, FeedProperties feedProperties, Sleeper sleeper, Clock clock, FeedlineMetrics metrics) {
         // Create robots parser with config
-        RobotsTxtParser robotsParser = new RobotsTxtParser(config);
+        RobotsTxtParser robotsParser = new RobotsTxtParser(config, feedProperties.getRobots(), clock);
 
         // Create fetcher with all dependencies
         return new FeedFetcher(config, robotsParser, sleeper, clock, metrics);
+    }
+
+    @Bean
+    public FeedNormalizer feedNormalizer(FeedProperties feedProperties) {
+        return new FeedNormalizer(feedProperties.getNormalizer());
     }
 }
