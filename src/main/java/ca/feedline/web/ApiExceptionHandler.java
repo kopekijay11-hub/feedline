@@ -42,4 +42,23 @@ public class ApiExceptionHandler {
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problem);
     }
+    @ExceptionHandler(ca.feedline.web.OutboxEventNotFoundException.class)
+    public org.springframework.http.ResponseEntity<org.springframework.http.ProblemDetail> handleNotFound(ca.feedline.web.OutboxEventNotFoundException ex) {
+        org.springframework.http.ProblemDetail problem = org.springframework.http.ProblemDetail.forStatus(org.springframework.http.HttpStatus.NOT_FOUND);
+        problem.setTitle("Outbox event not found");
+        problem.setDetail(ex.getMessage());
+        return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND)
+                .contentType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
+    @ExceptionHandler(ca.feedline.web.OutboxEventNotPoisonedException.class)
+    public org.springframework.http.ResponseEntity<org.springframework.http.ProblemDetail> handleConflict(ca.feedline.web.OutboxEventNotPoisonedException ex) {
+        org.springframework.http.ProblemDetail problem = org.springframework.http.ProblemDetail.forStatus(org.springframework.http.HttpStatus.CONFLICT);
+        problem.setTitle("Outbox event not poisoned");
+        problem.setDetail(ex.getMessage());
+        return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                .contentType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
 }

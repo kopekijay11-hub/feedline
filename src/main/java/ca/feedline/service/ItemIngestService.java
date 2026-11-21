@@ -7,12 +7,15 @@ import ca.feedline.dto.ItemIngestedEvent;
 import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.ItemRepository;
 import ca.feedline.repository.OutboxEventRepository;
+import ca.feedline.service.FeedlineMetrics;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rometools.rome.feed.synd.SyndEntry;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -42,12 +45,22 @@ public class ItemIngestService {
     private final String topic;
     private final boolean outboxEnabled;
     private final TransactionTemplate txTemplate;
+    private FeedlineMetrics metrics;
 
+    @Autowired
     public ItemIngestService(FeedNormalizer normalizer, ItemRepository items, FeedSourceRepository feedSources,
                              OutboxEventRepository outboxEvents, ObjectMapper objectMapper,
                              @Value("${feed.outbox.topic:feedline.items.ingested}") String topic,
                              @Value("${feed.outbox.enabled:true}") boolean outboxEnabled,
                              PlatformTransactionManager transactionManager) {
+        this(normalizer, items, feedSources, outboxEvents, objectMapper, topic, outboxEnabled, transactionManager, null);
+    }
+
+    public ItemIngestService(FeedNormalizer normalizer, ItemRepository items, FeedSourceRepository feedSources,
+                             OutboxEventRepository outboxEvents, ObjectMapper objectMapper,
+                             @Value("${feed.outbox.topic:feedline.items.ingested}") String topic,
+                             @Value("${feed.outbox.enabled:true}") boolean outboxEnabled,
+                             PlatformTransactionManager transactionManager, FeedlineMetrics metrics) {
         this.normalizer = normalizer;
         this.items = items;
         this.feedSources = feedSources;
@@ -57,6 +70,15 @@ public class ItemIngestService {
         this.outboxEnabled = outboxEnabled;
         this.txTemplate = new TransactionTemplate(transactionManager);
         this.txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.metrics = metrics;
+    }
+
+    @Autowired(required = false)
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Spring injection")
+    public void setMetrics(FeedlineMetrics metrics) {
+        if (metrics != null) {
+            this.metrics = metrics;
+        }
     }
 
     public ItemIngestResult ingest(FeedSource source, SyndEntry entry, Instant fetchedAt) {
@@ -72,17 +94,26 @@ public class ItemIngestService {
                 FeedSource managedSource = feedSources.findById(source.getId()).orElse(source);
                 Item item = normalizer.normalize(entry, managedSource, fetchedAt);
                 if (items.findBySourceIdAndGuid(source.getId(), item.getGuid()).isPresent()) {
+                    if (metrics != null) {
+                        metrics.recordIngestDuplicate();
+                    }
                     return new ItemIngestResult(guid, false);
                 }
                 items.saveAndFlush(item);
                 if (outboxEnabled) {
                     outboxEvents.saveAndFlush(outboxEventFor(item));
                 }
+                if (metrics != null) {
+                    metrics.recordIngestInserted();
+                }
                 return new ItemIngestResult(guid, true);
             });
         } catch (RuntimeException e) {
             String failureClass = classify(e);
             if (DUPLICATE.equals(failureClass)) {
+                if (metrics != null) {
+                    metrics.recordIngestDuplicate();
+                }
                 return new ItemIngestResult(guid, false);
             }
             throw new ItemIngestFailure(guid, failureClass, e);

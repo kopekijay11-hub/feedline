@@ -35,3 +35,20 @@ Milestone 1 — the ingestion core.
 - Unit tests against a captured real feed, plus Testcontainers integration tests against real PostgreSQL
 - SpotBugs static analysis wired into the Maven build
 - Docker Compose quick start (PostgreSQL 16)
+
+## [0.4.0] — 2026-11-20
+
+Milestone 4 Phase 1 — Observability & outbox housekeeping.
+
+- `V10__outbox_retention_and_metadata.sql`: partial cleanup index plus `replayed_count` and `schema_version`
+- Bounded outbox retention cleanup (batched, published rows only; pending and poisoned rows preserved)
+- Micrometer metrics for outbox pending/poisoned/oldest-pending-age, event outcomes, ingest outcomes, and fetch outcomes/duration
+- Poison replay increments `replayed_count` and `feedline.outbox.events.total{outcome="replayed"}`
+
+## [0.5.0] — 2026-11-20
+
+Milestone 4 Phase 2 — Operator admin API & security boundary.
+
+- Header-token auth boundary for `/api/v1/admin/**` (constant-time comparison)
+- Admin poisoned outbox listing, single replay, and batch replay endpoints
+- RFC 7807 problem+json for 401/403/404/409/400

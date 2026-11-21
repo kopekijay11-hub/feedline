@@ -10,7 +10,9 @@ import com.rometools.rome.io.SyndFeedInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 import java.io.StringReader;
 import java.time.Instant;
@@ -54,24 +56,41 @@ public class FeedPollerService {
     private final FeedSourceRepository feedSources;
     private final ItemIngestService itemIngest;
     private final IngestSkipRecorder skipRecorder;
+    private FeedlineMetrics metrics;
 
     private volatile Instant lastCompletedPollCycle = null;
 
+    @Autowired
     public FeedPollerService(FeedProperties config, FeedFetcher fetcher, FeedNormalizer normalizer,
                              FeedSourceRepository feedSources, ItemIngestService itemIngest,
                              IngestSkipRecorder skipRecorder) {
+        this(config, fetcher, normalizer, feedSources, itemIngest, skipRecorder, null);
+    }
+
+    public FeedPollerService(FeedProperties config, FeedFetcher fetcher, FeedNormalizer normalizer,
+                             FeedSourceRepository feedSources, ItemIngestService itemIngest,
+                             IngestSkipRecorder skipRecorder, FeedlineMetrics metrics) {
         this.config = config;
         this.fetcher = fetcher;
         this.normalizer = normalizer;
         this.feedSources = feedSources;
         this.itemIngest = itemIngest;
         this.skipRecorder = skipRecorder;
+        this.metrics = metrics;
     }
 
     /**
      * Time at which the most recent full poll cycle completed. {@code null} until
      * the first cycle has finished (its own state, not "just now").
      */
+    @Autowired(required = false)
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Spring injection")
+    public void setMetrics(FeedlineMetrics metrics) {
+        if (metrics != null) {
+            this.metrics = metrics;
+        }
+    }
+
     public Instant getLastCompletedPollCycle() {
         return lastCompletedPollCycle;
     }
@@ -228,10 +247,16 @@ public class FeedPollerService {
                     }
                 } catch (ItemIngestFailure failure) {
                     skipped++;
+                    if (metrics != null) {
+                        metrics.recordIngestSkipped();
+                    }
                     recordSkipSafely(source.getId(), failure.getGuid(), failure.getFailureClass(), url);
                     log.warn("Skipped item {} from {}: {}", failure.getGuid(), url, failure.getFailureClass());
                 } catch (RuntimeException e) {
                     skipped++;
+                    if (metrics != null) {
+                        metrics.recordIngestSkipped();
+                    }
                     String guid;
                     try {
                         guid = normalizer.guidFor(entry);

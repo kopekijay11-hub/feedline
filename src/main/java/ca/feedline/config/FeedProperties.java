@@ -1,6 +1,7 @@
 package ca.feedline.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 import java.time.Duration;
 import java.util.List;
@@ -81,6 +82,10 @@ public class FeedProperties {
      * Retention window for ingest skip records.
      */
     private Duration skipRetention = Duration.ofDays(30);
+
+    private Outbox outbox = new Outbox();
+
+    private Admin admin = new Admin();
 
     public List<Source> getSources() {
         return sources;
@@ -184,6 +189,111 @@ public class FeedProperties {
 
     public void setSkipRetention(Duration skipRetention) {
         this.skipRetention = skipRetention;
+    }
+
+    public Outbox getOutbox() {
+        return outbox;
+    }
+
+    public void setOutbox(Outbox outbox) {
+        this.outbox = outbox;
+    }
+
+    public Admin getAdmin() {
+        return admin;
+    }
+
+    public void setAdmin(Admin admin) {
+        this.admin = admin;
+    }
+
+    /**
+     * Outbox configuration.
+     */
+    public static class Outbox {
+        private Cleanup cleanup = new Cleanup();
+
+        @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring binding and internal access")
+        public Cleanup getCleanup() {
+            return cleanup;
+        }
+
+        @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Spring binding")
+        public void setCleanup(Cleanup cleanup) {
+            this.cleanup = cleanup;
+        }
+
+        public static class Cleanup {
+            private boolean enabled = true;
+            private Duration publishedRetention = Duration.ofDays(7);
+            private int batchSize = 500;
+            private String cron = "0 0 * * * *";
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public void setEnabled(boolean enabled) {
+                this.enabled = enabled;
+            }
+
+            public Duration getPublishedRetention() {
+                return publishedRetention;
+            }
+
+            public void setPublishedRetention(Duration publishedRetention) {
+                this.publishedRetention = publishedRetention;
+            }
+
+            public int getBatchSize() {
+                return batchSize;
+            }
+
+            public void setBatchSize(int batchSize) {
+                this.batchSize = batchSize;
+            }
+
+            public String getCron() {
+                return cron;
+            }
+
+            public void setCron(String cron) {
+                this.cron = cron;
+            }
+        }
+    }
+
+    /**
+     * Admin API configuration.
+     */
+    public static class Admin {
+        private boolean enabled = true;
+        private String apiKey = "feedline-admin-dev-token";
+        private String headerName = "X-Admin-Token";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getApiKey() {
+            return apiKey;
+        }
+
+        public void setApiKey(String apiKey) {
+            this.apiKey = apiKey;
+        }
+
+        public String getHeaderName() {
+            return headerName;
+        }
+
+        public void setHeaderName(String headerName) {
+            this.headerName = headerName;
+        }
     }
 
     /**

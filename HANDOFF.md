@@ -43,3 +43,23 @@
 
 ## Merge readiness
 M3 is merged on `main`. The full gate is green, the migration ordering hazard is resolved, outbox failure behavior is covered, and the docs record the no-backfill decision.
+
+## M4 Phase 1 — Observability & Outbox Housekeeping
+
+- Branch: `feat/m4-observability` (base `main @ 7343057`).
+- Added `V10__outbox_retention_and_metadata.sql`: partial cleanup index on `published_at`, plus `replayed_count` and `schema_version` columns.
+- Added `OutboxCleanupService` with typed `feed.outbox.cleanup.*` properties, batched deletion of published rows only, and scheduling gated by `feed.scheduling.enabled` and `feed.outbox.cleanup.enabled`.
+- Added `FeedlineMetrics` with low-cardinality Micrometer gauges/counters/timers for outbox, ingest, and fetch outcomes.
+- Updated `OutboxEvent.requeueForRetry` to increment `replayedCount`.
+- Tests: `FeedlineMetricsTest`, `OutboxCleanupServiceTest`, `OutboxCleanupIntegrationTest`.
+- Verification: `mvn clean verify` — 102 tests, 0 failures/errors/skips; SpotBugs 0 bugs.
+
+## M4 Phase 2 — Operator Admin API & Security Boundary
+
+- Branch: `feat/m4-admin-api` (base `feat/m4-observability`).
+- Added `feed.admin.enabled`, `feed.admin.api-key` (env `FEED_ADMIN_API_KEY`), `feed.admin.header-name` (default `X-Admin-Token`).
+- Added `AdminTokenFilter` (constant-time comparison, `401`/`403` RFC 7807).
+- Added `AdminOutboxController` + `AdminOutboxService`: list poisoned (deterministic order), single replay, batch replay.
+- DTOs: `PoisonedOutboxEventDto`, `PoisonedOutboxPage`, `PoisonReplayResponse`.
+- Tests: `AdminOutboxSeamTest`.
+- Verification: `mvn clean verify` green, SpotBugs 0.

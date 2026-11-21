@@ -49,6 +49,12 @@ public class OutboxEvent {
     @Column(name = "poisoned_at")
     private Instant poisonedAt;
 
+    @Column(name = "replayed_count", nullable = false)
+    private int replayedCount;
+
+    @Column(name = "schema_version", nullable = false)
+    private int schemaVersion = 1;
+
     public OutboxEvent() {
     }
 
@@ -125,6 +131,22 @@ public class OutboxEvent {
         return poisonedAt;
     }
 
+    public int getReplayedCount() {
+        return replayedCount;
+    }
+
+    public void setReplayedCount(int replayedCount) {
+        this.replayedCount = replayedCount;
+    }
+
+    public int getSchemaVersion() {
+        return schemaVersion;
+    }
+
+    public void setSchemaVersion(int schemaVersion) {
+        this.schemaVersion = schemaVersion;
+    }
+
     public boolean isPoisoned() {
         return poisonedAt != null;
     }
@@ -158,5 +180,6 @@ public class OutboxEvent {
         this.attempts = 0;
         this.nextAttemptAt = at;
         this.lastError = null;
+        this.replayedCount++;
     }
 }
