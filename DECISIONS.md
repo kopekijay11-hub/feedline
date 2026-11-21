@@ -156,5 +156,17 @@ The base delay (`feed.poller.backoff-base`, default 30s) doubles per consecutive
 **Why leases are released on graceful shutdown**
 An ungraceful crash intentionally leaves `lease_until` in place so another replica reclaims the source after expiry. A graceful exit is different: the worker knows it will not poll again, so waiting for the two-minute lease would strand every source it owned. `FeedPollerService` exposes a `@PreDestroy` hook that stops new claims, waits at most `feed.poller.shutdown-timeout` for an in-flight cycle, and bulk-clears `lease_owner`/`lease_until` for its worker id. The outbox relay and cleanup service flip a running flag so no new batches start; an in-flight batch still gets its bounded send window. `server.shutdown: graceful` plus `spring.lifecycle.timeout-per-shutdown-phase` and scheduler await-termination settings make the same bound explicit at the Spring level.
 
+
 **Why the new metrics stay low cardinality**
 Poll outcomes use a fixed four-value `outcome` tag (`success`, `not_modified`, `rate_limited`, `error`); unknown values bucket into `error` rather than creating a new series. Source health uses a fixed `state` tag (`healthy`, `degraded`, `backoff`, `disabled`, `unknown`) with one gauge per state and an `active` gauge. Shutdown uses a fixed `outcome` tag (`lease_released`, `lease_release_failed`, `relay_stopped`, `cleanup_stopped`, `completed`). No URL, exception text, GUID, token, or per-source identifier is ever used as a tag.
+
+## M5 Phase 4 — End-to-End Lifecycle Test, Deployment/Config Hardening, Documentation Sync
+
+**Full-lifecycle E2E seam**
+`FeedlineLifecycleE2ETest` exercises poll→ingest→outbox emission→relay failure/retry→poison quarantine→admin replay→real Kafka delivery→health/query→retention cleanup against real PostgreSQL and real Kafka. The test uses stubs only at the upstream HTTP boundary (`robots.txt` + RSS feed) and proves the production wiring: atomic item+outbox commit, lease release, V12 `last_attempt_at`, sanitized `last_error`, admin auth, replayed row metadata preservation (`eventKey`, payload, UTF-8 headers, schemaVersion/eventType/occurredAt/sourceId), and cleanup safety (published-only, aged-only).
+
+**Point-in-time fetched window**
+`GET /api/v1/items` adds `fetchedFrom`/`fetchedTo` (inclusive) filters on `fetched_at` alongside existing `from`/`to` published filters. This supports operational/debug queries over ingest time without changing keyset pagination semantics, which remain `(fetched_at DESC, id DESC)`.
+
+**Deployment defaults**
+HikariCP pool bounds are explicit and env-tunable; actuator exposure remains `health,info`; admin endpoints remain token-gated and fail closed; HTTP/outbox/shutdown bounds remain configured. JVM heap guidance (`-Xmx512m` to `-Xmx1g` on constrained hosts) and key env vars are documented for operators. No secrets are hardcoded; dev defaults are overrideable by env.

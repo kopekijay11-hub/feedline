@@ -17,6 +17,13 @@ spring:
     username: feedline
     password: feedline
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # Bounded pool for constrained hosts; override with DB_POOL_MAX_SIZE.
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:30000}
+      idle-timeout: ${DB_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${DB_MAX_LIFETIME_MS:1800000}
 
   jpa:
     open-in-view: false

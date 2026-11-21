@@ -15,7 +15,7 @@
 | | |
 |---|---|
 | **Service type** | Single-process scheduled feed ingestion (RSS/Atom) |
-| **Stack** | Java 21 · Spring Boot 3.3.5 (`web`, `actuator`, `data-jpa`) · PostgreSQL 16 · Flyway (V1–V12, V7 skipped) · Kafka · Rome · Maven · Micrometer |
+| **Stack** | Java 21 · Spring Boot 3.3.5 (`web`, `actuator`, `data-jpa`) · PostgreSQL 16 · Flyway (V1–V13, V7 skipped) · Kafka · Rome · Maven · Micrometer |
 | **Ingestion model** | One fixed-delay poll cycle over 10 enabled feeds (news, markets, and central-bank press releases), with per-host politeness, conditional GET, bounded redirects, retries, timeouts, and body caps |
 | **Persistence** | `feed_sources` registry + `items` table; unique `(source_id, guid)` makes ingestion insert-if-absent. Per-item skips are recorded in `ingest_skips` |
 | **Fetch policy** | `robots.txt` consulted per origin and cached for 24 hours; fail closed on 403, 5xx, and network/timeout errors; 404 means no rules (allow) |
@@ -29,9 +29,8 @@
 ## How to read this repository
 
 - **README.md** (this file) — what the service is, how it runs, and how it is tested.
-- **[HANDOFF.md](HANDOFF.md)** — merged M3 state, completion/audit summary, and verification baseline.
+- **[HANDOFF.md](HANDOFF.md)** — current working notes, verification baseline, and phase summaries.
 - **[DECISIONS.md](DECISIONS.md)** — the design-decision log: choices made, alternatives considered, and why.
-- **[HANDOFF.md](HANDOFF.md)** — current working notes.
 
 ---
 
@@ -45,7 +44,7 @@ A poll cycle walks the ten feeds configured in `application.yml` (BBC, The Verge
 4. ingests each item in its own `REQUIRES_NEW` transaction, so one bad item cannot roll back the feed;
 5. records skipped items and advances the stored validators only after a fully clean `200` poll.
 
-Flyway owns the schema from V1 through V12 (V7 was skipped); the application never creates tables itself. V8 adds keyset/skip-retention/optimistic-lock support, V9 adds the Kafka outbox, V10 adds outbox retention cleanup and replay metadata, V11 adds source poller lease columns/index, and V12 adds the outbox `last_attempt_at` diagnostic column.
+Flyway owns the schema from V1 through V13 (V7 was skipped); the application never creates tables itself. V8 adds keyset/skip-retention/optimistic-lock support, V9 adds the Kafka outbox, V10 adds outbox retention cleanup and replay metadata, V11 adds source poller lease columns/index, V12 adds the outbox `last_attempt_at` diagnostic column, and V13 adds source health/backoff state (`next_poll_at`, `last_error_at`, `last_error`).
 
 ## Architecture
 
@@ -55,7 +54,7 @@ flowchart LR
     R --> F["Polite fetcher<br/>(conditional GET, retries)"]
     F --> P["Rome parser + normalizer"]
     P --> I["Per-item REQUIRES_NEW ingest"]
-    I --> DB[("PostgreSQL 16<br/>Flyway V1–V12 (V7 skipped)")]
+    I --> DB[("PostgreSQL 16<br/>Flyway V1–V13 (V7 skipped)")]
     I --> O[("outbox_events<br/>transactional outbox")]
     O --> K["Kafka relay<br/>feedline.items.ingested"]
     DB --> A["/api/v1/items<br/>/api/v1/sources/health<br/>/actuator/health/*"]
@@ -73,9 +72,12 @@ No paid services, no cloud, no API keys. Everything is open source.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/v1/items` | Page of items, newest first; `source`, `q`, `from`, `to`, `cursor`, `size` (max 100). Keyset pagination on `(fetched_at, id)` with a `nextCursor` in the response. |
+| `GET /api/v1/items` | Page of items, newest first; `source`, `q`, `from`, `to`, `fetchedFrom`, `fetchedTo`, `cursor`, `size` (max 100). Keyset pagination on `(fetched_at, id)` with a `nextCursor` in the response. `from`/`to` filter `published_at`; `fetchedFrom`/`fetchedTo` filter `fetched_at` (point-in-time ingest window). |
 | `GET /api/v1/items/{id}` | One item, or a RFC 7807 `problem+json` error. |
-| `GET /api/v1/sources/health` | Per-source fetch state and last successful poll; mirrors readiness status. |
+| `GET /api/v1/sources/health` | Per-source fetch state, backoff/error state, and last successful poll; mirrors readiness status. |
+| `GET /api/v1/admin/outbox/poisoned` | Admin-only: list poisoned outbox rows (`page`, `size`, optional `topic`). Requires `X-Admin-Token`. |
+| `POST /api/v1/admin/outbox/poisoned/{id}/replay` | Admin-only: replay one poisoned outbox row. Requires `X-Admin-Token`. |
+| `POST /api/v1/admin/outbox/poisoned/replay-batch` | Admin-only: replay oldest poisoned rows (`topic`, `limit`). Requires `X-Admin-Token`. |
 | `GET /actuator/health/readiness` | Readiness probe (`readinessState`, `db`, `pollCycleHeartbeat`). |
 | `GET /actuator/health/liveness` | Liveness probe (`livenessState`). |
 | `/swagger-ui.html`, `/v3/api-docs` | OpenAPI documentation. |
@@ -94,9 +96,41 @@ ETag and Last-Modified are **bookmarks into the remote feed**. They advance only
 - `POST /api/v1/admin/outbox/poisoned/{id}/replay` — requeue one poisoned event
 - `POST /api/v1/admin/outbox/poisoned/replay-batch` — requeue up to `limit` oldest poisoned events
 
+## Deployment & configuration
+
+Safe production defaults are enabled by default:
+
+- **Admin auth:** `/api/v1/admin/**` requires `X-Admin-Token` (`feed.admin.header-name`) matching `FEED_ADMIN_API_KEY` (default dev token: `feedline-admin-dev-token`; override in non-dev environments). Missing/invalid token returns `401 problem+json`; disabled/blank config fails closed.
+- **Actuator exposure:** only `health,info` are exposed; health details are hidden; readiness/liveness probes enabled.
+- **HTTP bounds:** bounded connect/read timeouts, max body bytes, redirect cap, retries, per-host interval, SSRF loopback blocked by default.
+- **Outbox bounds:** `feed.outbox.batch-size`, `max-attempts`, backoff, and `send-timeout-ms` are clamped to safe ranges.
+- **DB pool:** bounded HikariCP defaults (`DB_POOL_MAX_SIZE=10`, `DB_POOL_MIN_IDLE=2`, connection/idle/max-lifetime timeouts).
+- **Graceful shutdown:** `server.shutdown=graceful`, `spring.lifecycle.timeout-per-shutdown-phase=30s`, scheduler await-termination, poller shutdown lease release, relay/cleanup stop accepting new work.
+
+Recommended JVM heap on constrained/shared hosts: `-Xmx512m` to `-Xmx1g` (set via `JAVA_TOOL_OPTIONS` or container runtime). Keep heap below container limit and leave headroom for metaspace/native memory.
+
+Key environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `SPRING_DATASOURCE_URL` / `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | PostgreSQL connection |
+| `SPRING_KAFKA_BOOTSTRAP_SERVERS` / `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers |
+| `FEED_ADMIN_API_KEY` | Admin API token for `/api/v1/admin/**` |
+| `FEED_POLLER_WORKER_ID` | Stable poller worker identity for leases/diagnostics |
+| `DB_POOL_MAX_SIZE`, `DB_POOL_MIN_IDLE` | HikariCP pool sizing |
+| `JAVA_TOOL_OPTIONS` | JVM flags (e.g. `-Xmx768m`) |
+
+Operational runbook checks:
+
+- `GET /actuator/health/readiness` returns `UP` before routing traffic.
+- `GET /api/v1/sources/health` shows source states/backoff/errors; investigate `DEGRADED`/`BACKOFF`.
+- Monitor `feedline.outbox.pending.count`, `feedline.outbox.poisoned.count`, `feedline.outbox.oldest.pending.age.seconds`.
+- Inspect/replay poisoned rows via admin API with `X-Admin-Token`; confirm replayed records preserve `eventKey`/headers.
+- Confirm cleanup preserves pending/poisoned rows and only deletes aged published rows.
+
 ## Tests and CI
 
-- `mvn clean verify` — the full local gate: JDK `HttpServer`/MockWebServer wire tests, Testcontainers PostgreSQL and Kafka integration tests (all under Surefire), plus SpotBugs with `failOnError=true`.
+- `mvn clean verify` — the full local gate: JDK `HttpServer`/MockWebServer wire tests, Testcontainers PostgreSQL and Kafka integration tests (all under Surefire), plus SpotBugs with `failOnError=true`. Current baseline: 142 tests, 0 failures/errors/skips, 0 SpotBugs findings.
 - GitHub Actions runs the same `mvn clean verify` gate on pushes to `main` and on pull requests. `clean` also removes any stale `V7` migration artifact that an incremental build could leave on the classpath.
 - A test that cannot pass honestly is reported, never weakened just to make the suite green.
 

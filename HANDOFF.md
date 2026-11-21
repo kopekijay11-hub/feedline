@@ -1,9 +1,9 @@
 # Feedline — Handoff
 
 ## Current branch
-- Active branch: `feat/m5-health-lifecycle`; base `main @ ed970ac` (M5 Phase 2 merged); working tree clean prior to this change.
+- Active branch: `feat/m5-e2e-readiness`; base `main @ ddf195a` (M5 Phase 3 merged); clean feature branch for M5 Phase 4.
 - Migration state: `V1`–`V13` ship on this branch (`V7` skipped; `V10` outbox retention/replay metadata; `V11` source poller leases; `V12` outbox `last_attempt_at`; `V13` source health/backoff state).
-- Verification baseline before this change: `132/132` tests passing, `0` SpotBugs findings (`failOnError=true`).
+- Verification baseline before this change: `141/141` tests passing, `0` SpotBugs findings (`failOnError=true`).
 
 ## M3 hardening
 - Renamed the outbox migration from `V7` to `V9`. It now runs after `V8` on databases that already applied `V8`, which is required with `validate-on-migrate: true` and the default `out-of-order: false`.
@@ -115,3 +115,16 @@ M3 is merged on `main`. The full gate is green, the migration ordering hazard is
 - Tests added/expanded: `FeedPollerServiceTest` (backoff progression, 429 Retry-After, clean reset, shutdown lease release), `SourceHealthSeamTest` (429/503 BACKOFF, recovery, sanitized health error, shutdown lease release), `FeedlineMetricsTest` (poll/health/shutdown metrics and tag safety).
 - Verification: `mvn clean verify` — `141` tests run / `141` passed (`0` failures, `0` errors, `0` skipped); SpotBugs `BugInstance size is 0`, `Error size is 0` (`failOnError=true`).
 - Full log: `/tmp/opencode/m5-phase3-verify.log`.
+
+## M5 Phase 4 — End-to-End Poll-to-Replay-to-Cleanup Integration Test, Deployment & Configuration Hardening, and Documentation Sync
+
+- Branch: `feat/m5-e2e-readiness` (base `main @ ddf195a`).
+- Added `FeedlineLifecycleE2ETest` (Testcontainers PostgreSQL + real Kafka, `feed.scheduling.enabled=false`) covering full lifecycle:
+  1. **Poll & ingest:** robots stub + RSS fetch, sanitize/normalize, per-item atomic item+outbox persistence, versioned outbox payload (`schemaVersion`, `eventKey`, `eventType`, `occurredAt`, `sourceId`), clean source lease release.
+  2. **Transient failure & poison quarantine:** relay failures across retries until `maxAttempts` reached; verifies `poisoned_at`, V12 `last_attempt_at`, sanitized `last_error` (no secrets/stack/control chars, bounded), admin listing 401 for missing/invalid `X-Admin-Token`, 200 with valid token.
+  3. **Replay & real Kafka delivery:** single replay requeues poisoned row; relay publishes to real Kafka; asserts exact original `eventKey`, payload, and UTF-8 headers (`schemaVersion`, `eventKey`, `eventType`, `occurredAt`, `sourceId`), and `replayedCount` / `publishedAt` updated.
+  4. **Health, query & retention cleanup:** `GET /api/v1/sources/health` reflects source health; `GET /api/v1/items` supports point-in-time `fetchedFrom`/`fetchedTo`; `OutboxCleanupService` prunes aged published rows while preserving pending/poisoned rows.
+- Deployment/config hardening: explicit bounded HikariCP pool env defaults in `application.yml`; actuator exposure remains `health,info`; admin token required for `/api/v1/admin/**`; bounded HTTP/outbox timeouts and graceful shutdown retained. README/HANDOFF document JVM heap recommendation (`-Xmx512m` to `-Xmx1g` on constrained hosts) and key env vars (`SPRING_DATASOURCE_*`, `SPRING_KAFKA_BOOTSTRAP_SERVERS`, `FEED_ADMIN_API_KEY`, `FEED_POLLER_WORKER_ID`).
+- Documentation synced: `README.md`, `DECISIONS.md`, `HANDOFF.md`, `CHANGELOG.md` aligned for V1–V13 schema coverage, M5 deliverables, endpoints, config knobs, and test counts.
+- Verification: `mvn clean verify` — `142` tests run / `142` passed (`0` failures, `0` errors, `0` skipped); SpotBugs `BugInstance size is 0`, `Error size is 0` (`failOnError=true`).
+- Full log: `/tmp/opencode/m5-phase4-verify.log`.

@@ -24,8 +24,8 @@ public class ItemQueryService {
         this.entityManager = entityManager;
     }
 
-    public ItemsPage list(Long source, String q, Instant from, Instant to, String cursor,
-                          int requestedSize) {
+    public ItemsPage list(Long source, String q, Instant from, Instant to, Instant fetchedFrom,
+                          Instant fetchedTo, String cursor, int requestedSize) {
         int size = requestedSize <= 0 ? 20 : Math.min(requestedSize, 100);
         Cursor c = decodeCursor(cursor);
 
@@ -42,13 +42,19 @@ public class ItemQueryService {
         if (to != null) {
             where.append(" AND published_at <= :to");
         }
+        if (fetchedFrom != null) {
+            where.append(" AND fetched_at >= :fetchedFrom");
+        }
+        if (fetchedTo != null) {
+            where.append(" AND fetched_at <= :fetchedTo");
+        }
         // null policy: a date range excludes rows with null published_at automatically,
         // because the comparisons above are UNKNOWN for null. No extra predicate needed.
 
         // total count (filters only, no cursor)
         String countSql = "SELECT COUNT(*) FROM items " + where;
         Query countQuery = entityManager.createNativeQuery(countSql);
-        bindParams(countQuery, source, q, from, to, null, null);
+        bindParams(countQuery, source, q, from, to, fetchedFrom, fetchedTo, null);
         long total = ((Number) countQuery.getSingleResult()).longValue();
 
         // page query
@@ -60,7 +66,7 @@ public class ItemQueryService {
         }
         pageSql.append(" ORDER BY fetched_at DESC, id DESC LIMIT :limit");
         Query pageQuery = entityManager.createNativeQuery(pageSql.toString());
-        bindParams(pageQuery, source, q, from, to, c, null);
+        bindParams(pageQuery, source, q, from, to, fetchedFrom, fetchedTo, c);
         if (c != null) {
             pageQuery.setParameter("cf", c.fetchedAt());
             pageQuery.setParameter("ci", c.id());
@@ -112,7 +118,7 @@ public class ItemQueryService {
     }
 
     private void bindParams(Query q, Long source, String text, Instant from, Instant to,
-                            Cursor cursor, Object ignored) {
+                            Instant fetchedFrom, Instant fetchedTo, Cursor cursor) {
         if (source != null) {
             q.setParameter("source", source);
         }
@@ -124,6 +130,12 @@ public class ItemQueryService {
         }
         if (to != null) {
             q.setParameter("to", java.sql.Timestamp.from(to));
+        }
+        if (fetchedFrom != null) {
+            q.setParameter("fetchedFrom", java.sql.Timestamp.from(fetchedFrom));
+        }
+        if (fetchedTo != null) {
+            q.setParameter("fetchedTo", java.sql.Timestamp.from(fetchedTo));
         }
     }
 

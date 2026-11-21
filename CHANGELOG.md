@@ -1,5 +1,12 @@
 # Changelog
 
+## M5 Phase 4 — End-to-end poll-to-replay-to-cleanup integration, deployment & config hardening, docs sync.
+- Added `FeedlineLifecycleE2ETest`: full lifecycle against real PostgreSQL and real Kafka (poll/ingest with robots stub, atomic outbox emission, lease release, transient relay failures to poison quarantine, V12 `last_attempt_at`/sanitized `last_error`, admin 401/200, replay to real Kafka with preserved `eventKey`/payload/UTF-8 headers, health, fetchedFrom/fetchedTo item filtering, and retention cleanup preserving pending/poisoned rows).
+- Added point-in-time `fetchedFrom`/`fetchedTo` query filters to `GET /api/v1/items`.
+- Hardened deployment defaults: explicit bounded HikariCP pool settings, documented JVM heap/env vars and operational runbook checks; actuator exposure remains `health,info`, admin token required for `/api/v1/admin/**`, graceful shutdown/bounded timeouts preserved.
+- Synced README, DECISIONS, HANDOFF, and CHANGELOG for V1–V13 schema coverage, M5 deliverables, endpoints, config knobs, and verification counts.
+- Verification: `mvn clean verify` — `142` tests run / `142` passed (`0` failures, `0` errors, `0` skipped); SpotBugs `BugInstance size is 0`, `Error size is 0` (`failOnError=true`).
+
 ## M5 Phase 3 — Source health/backoff alignment, graceful shutdown & metrics coverage.
 - Added `V13__source_health_backoff.sql`: `next_poll_at`, `last_error_at`, and bounded `last_error` per source
 - Consecutive fetch/parse/network failures now increment `consecutive_failures`, set `last_error_at`/`last_error`, and schedule exponential backoff (`feed.poller.backoff-base`, `feed.poller.max-backoff`)
