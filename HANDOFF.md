@@ -1,10 +1,9 @@
 # Feedline — Handoff
 
 ## Current branch
-- Active branch: `main`; `origin/main` in sync; working tree clean prior to this change.
-- Base HEAD: `be97405` (`main` @ `be97405`, M3 + M4 Phases 1–4 merged).
-- Migration state: `V1`–`V11` ship on `main` (`V7` skipped; `V10` outbox retention/replay metadata; `V11` source poller leases).
-- Verification baseline: `111/111` tests passing, `0` SpotBugs findings (`failOnError=true`).
+- Active branch: `feat/m5-relay-partitioning`; base `main @ e4f6bcf` (M5 Phase 1 merged); working tree clean prior to this change.
+- Migration state: `V1`–`V12` ship on this branch (`V7` skipped; `V10` outbox retention/replay metadata; `V11` source poller leases; `V12` outbox `last_attempt_at`).
+- Verification baseline before this change: `115/115` tests passing, `0` SpotBugs findings (`failOnError=true`).
 
 ## M3 hardening
 - Renamed the outbox migration from `V7` to `V9`. It now runs after `V8` on databases that already applied `V8`, which is required with `validate-on-migrate: true` and the default `out-of-order: false`.
@@ -89,3 +88,15 @@ M3 is merged on `main`. The full gate is green, the migration ordering hazard is
 - `OutboxRelayService` publishes Kafka records with headers `schemaVersion`, `eventKey`, `eventType`, `occurredAt`, and `sourceId` (as applicable).
 - `eventKey` is deterministic (`sourceId:guid`) across retries and admin poison replays; only retry metadata changes on replay.
 - Consumer idempotency contract documented in `DECISIONS.md`.
+
+## M5 Phase 2 — Outbox Relay Batch & Partition Tuning, Poison Event Error/Replay Diagnostics, and Relay Tests
+
+- Branch: `feat/m5-relay-partitioning` (base `main @ e4f6bcf`, after the `feat/m5-event-contract` merge).
+- Added `V12__outbox_last_attempt_at.sql` (nullable `last_attempt_at`); no backfill, no rewrite of existing rows.
+- `FeedProperties.Outbox` now binds `feed.outbox.enabled`, `topic`, `poll-delay`, `batch-size`, `max-attempts`, `initial-backoff-ms`, `max-backoff-ms`, and `send-timeout-ms` with clamped setters (batch `1..1000`, attempts `1..100`, backoff `1ms..1h`, send timeout `1ms..60s`). `OutboxRelayService` applies the same clamps to direct construction.
+- `OutboxEventRepository.findPublishable` orders by `(next_attempt_at, id)` to match `idx_outbox_publishable` and avoid starving due retries; `findOldestPoisoned` uses `FOR UPDATE SKIP LOCKED` for safe batch replay.
+- Poison diagnostics: `PoisonedOutboxEventDto` now includes `attempts`, `replayedCount`, `lastError` (sanitized), `lastAttemptAt`, `nextAttemptAt`, `createdAt`, and `poisonedAt`. `PoisonErrorSanitizer` strips stack frames, redacts bearer/authorization, key/value secrets, URL userinfo and token prefixes, collapses control characters, and caps output at 500 characters.
+- `replayOne`/`replayBatch` preserve `eventKey`, `payload`, and `schemaVersion`; batch replay returns `skippedIds` for rows that are no longer poisoned. `FeedlineMetrics` tags remain the fixed low-cardinality outcome set.
+- Tests added: `OutboxRelayServiceTest` (batch clamps, exponential backoff cap, retry key/header stability), `OutboxRelayConcurrencyTest` (bounded batch, four-worker exactly-once), `OutboxRelayRealKafkaConcurrencyTest` (murmur2 key partitioning on 3 partitions), `AdminOutboxSeamTest` (diagnostic fields, secret sanitization, batch payload/schema replay), `PoisonErrorSanitizerTest`, and `FeedPropertiesTest`.
+- Verification: `mvn clean verify` — `132` tests run / `132` passed (`0` failures, `0` errors, `0` skipped); SpotBugs `BugInstance size is 0`, `Error size is 0` (`failOnError=true`).
+- Full log: `/tmp/opencode/m5-phase2-verify.log`.

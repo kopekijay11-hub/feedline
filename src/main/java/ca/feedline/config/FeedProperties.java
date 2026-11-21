@@ -238,10 +238,91 @@ public class FeedProperties {
     }
 
     /**
-     * Outbox configuration.
+     * Outbox relay configuration.
+     *
+     * <p>Values are clamped in the setters so a misconfigured environment cannot
+     * produce an unbounded claim, a zero retry budget, or a non-positive send wait.
      */
     public static class Outbox {
+        private static final String DEFAULT_TOPIC = "feedline.items.ingested";
+
+        private boolean enabled = true;
+        private String topic = DEFAULT_TOPIC;
+        private String pollDelay = "2000";
+        private int batchSize = 50;
+        private int maxAttempts = 5;
+        private long initialBackoffMs = 1000;
+        private long maxBackoffMs = 60000;
+        private long sendTimeoutMs = 5000;
+
         private Cleanup cleanup = new Cleanup();
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getTopic() {
+            return topic;
+        }
+
+        public void setTopic(String topic) {
+            this.topic = topic == null || topic.isBlank() ? DEFAULT_TOPIC : topic;
+        }
+
+        public String getPollDelay() {
+            return pollDelay;
+        }
+
+        public void setPollDelay(String pollDelay) {
+            this.pollDelay = pollDelay == null || pollDelay.isBlank() ? "2000" : pollDelay;
+        }
+
+        public int getBatchSize() {
+            return batchSize;
+        }
+
+        public void setBatchSize(int batchSize) {
+            this.batchSize = Math.max(1, Math.min(batchSize, 1000));
+        }
+
+        public int getMaxAttempts() {
+            return maxAttempts;
+        }
+
+        public void setMaxAttempts(int maxAttempts) {
+            this.maxAttempts = Math.max(1, Math.min(maxAttempts, 100));
+        }
+
+        public long getInitialBackoffMs() {
+            return initialBackoffMs;
+        }
+
+        public void setInitialBackoffMs(long initialBackoffMs) {
+            this.initialBackoffMs = Math.max(1, Math.min(initialBackoffMs, 600_000));
+            if (this.maxBackoffMs < this.initialBackoffMs) {
+                this.maxBackoffMs = this.initialBackoffMs;
+            }
+        }
+
+        public long getMaxBackoffMs() {
+            return maxBackoffMs;
+        }
+
+        public void setMaxBackoffMs(long maxBackoffMs) {
+            this.maxBackoffMs = Math.max(this.initialBackoffMs, Math.min(maxBackoffMs, 3_600_000));
+        }
+
+        public long getSendTimeoutMs() {
+            return sendTimeoutMs;
+        }
+
+        public void setSendTimeoutMs(long sendTimeoutMs) {
+            this.sendTimeoutMs = Math.max(1, Math.min(sendTimeoutMs, 60_000));
+        }
 
         @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Spring binding and internal access")
         public Cleanup getCleanup() {

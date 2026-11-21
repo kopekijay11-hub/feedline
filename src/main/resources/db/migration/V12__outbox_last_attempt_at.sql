@@ -1,0 +1,2 @@
+ALTER TABLE outbox_events
+    ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP WITH TIME ZONE NULL;

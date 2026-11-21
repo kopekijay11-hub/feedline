@@ -35,12 +35,14 @@ public class AdminOutboxService {
 
     @Transactional(readOnly = true)
     public PoisonedOutboxPage listPoisoned(int page, int size, String topic) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
         long total = outboxEvents.countPoisonedFiltered(topic);
-        int offset = page * size;
-        List<OutboxEvent> rows = outboxEvents.findPoisonedOrdered(topic, size, offset);
+        int offset = safePage * safeSize;
+        List<OutboxEvent> rows = outboxEvents.findPoisonedOrdered(topic, safeSize, offset);
         List<PoisonedOutboxEventDto> items = rows.stream().map(this::toDto).toList();
-        int totalPages = size == 0 ? 0 : (int) Math.ceil((double) total / (double) size);
-        return new PoisonedOutboxPage(items, page, size, total, totalPages);
+        int totalPages = (int) Math.ceil((double) total / (double) safeSize);
+        return new PoisonedOutboxPage(items, safePage, safeSize, total, totalPages);
     }
 
     @Transactional
@@ -61,10 +63,16 @@ public class AdminOutboxService {
 
     @Transactional
     public PoisonReplayResponse replayBatch(String topic, int limit) {
-        List<OutboxEvent> poisoned = outboxEvents.findOldestPoisoned(topic, limit);
+        int safeLimit = Math.max(1, Math.min(limit, 500));
+        List<OutboxEvent> poisoned = outboxEvents.findOldestPoisoned(topic, safeLimit);
         List<Long> replayedIds = new java.util.ArrayList<>();
+        List<Long> skippedIds = new java.util.ArrayList<>();
         Instant now = clock.instant();
         for (OutboxEvent event : poisoned) {
+            if (event.isPublished() || !event.isPoisoned()) {
+                skippedIds.add(event.getId());
+                continue;
+            }
             event.requeueForRetry(now);
             outboxEvents.save(event);
             replayedIds.add(event.getId());
@@ -72,8 +80,9 @@ public class AdminOutboxService {
                 metrics.recordOutboxReplayed();
             }
         }
-        log.info("Admin replayed {} poisoned outbox events: {}", replayedIds.size(), replayedIds);
-        return new PoisonReplayResponse(replayedIds.size(), replayedIds, List.of());
+        log.info("Admin replayed {} poisoned outbox events; skipped {}: {}",
+                replayedIds.size(), skippedIds.size(), skippedIds);
+        return new PoisonReplayResponse(replayedIds.size(), replayedIds, skippedIds);
     }
 
     private PoisonedOutboxEventDto toDto(OutboxEvent event) {
@@ -83,7 +92,9 @@ public class AdminOutboxService {
                 event.getEventKey(),
                 event.getAttempts(),
                 event.getReplayedCount(),
-                event.getLastError(),
+                PoisonErrorSanitizer.sanitize(event.getLastError()),
+                event.getLastAttemptAt(),
+                event.getNextAttemptAt(),
                 event.getCreatedAt(),
                 event.getPoisonedAt());
     }

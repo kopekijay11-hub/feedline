@@ -46,6 +46,9 @@ public class OutboxEvent {
     @Column(name = "last_error", columnDefinition = "TEXT")
     private String lastError;
 
+    @Column(name = "last_attempt_at")
+    private Instant lastAttemptAt;
+
     @Column(name = "poisoned_at")
     private Instant poisonedAt;
 
@@ -127,6 +130,10 @@ public class OutboxEvent {
         return lastError;
     }
 
+    public Instant getLastAttemptAt() {
+        return lastAttemptAt;
+    }
+
     public Instant getPoisonedAt() {
         return poisonedAt;
     }
@@ -161,7 +168,12 @@ public class OutboxEvent {
     }
 
     public void recordFailure(String error) {
+        recordFailure(error, Instant.now());
+    }
+
+    public void recordFailure(String error, Instant attemptedAt) {
         this.attempts++;
+        this.lastAttemptAt = attemptedAt;
         this.lastError = error == null ? "unknown publish failure"
                 : error.substring(0, Math.min(error.length(), MAX_ERROR_LENGTH));
     }

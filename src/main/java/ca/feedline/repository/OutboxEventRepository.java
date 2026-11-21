@@ -16,7 +16,7 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
             WHERE published_at IS NULL
               AND poisoned_at IS NULL
               AND (next_attempt_at IS NULL OR next_attempt_at <= :now)
-            ORDER BY id
+            ORDER BY next_attempt_at, id
             LIMIT :limit
             FOR UPDATE SKIP LOCKED
             """, nativeQuery = true)
@@ -169,6 +169,7 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
               AND (:topic IS NULL OR topic = :topic)
             ORDER BY poisoned_at ASC, id ASC
             LIMIT :limit
+            FOR UPDATE SKIP LOCKED
             """, nativeQuery = true)
     List<OutboxEvent> findOldestPoisoned(@Param("topic") String topic, @Param("limit") int limit);
 }
