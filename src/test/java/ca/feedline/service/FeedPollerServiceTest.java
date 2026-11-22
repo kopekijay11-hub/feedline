@@ -48,7 +48,7 @@ class FeedPollerServiceTest {
 
     @BeforeEach
     void setUp() {
-        poller = new FeedPollerService(new FeedProperties(), fetcher, normalizer, sources, itemIngest, skipRecorder);
+        poller = new FeedPollerService(new FeedProperties(), fetcher, normalizer, sources, itemIngest, skipRecorder, null, null);
     }
 
     @Test
@@ -157,7 +157,7 @@ class FeedPollerServiceTest {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         FeedlineMetrics metrics = new FeedlineMetrics(registry);
         FeedPollerService rateLimitedPoller = new FeedPollerService(
-                new FeedProperties(), fetcher, normalizer, sources, itemIngest, skipRecorder, metrics);
+                new FeedProperties(), fetcher, normalizer, sources, itemIngest, skipRecorder, metrics, null);
         FeedSource stored = storedSource();
         when(sources.findByUrl(URL)).thenReturn(Optional.of(stored));
         when(sources.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -201,7 +201,7 @@ class FeedPollerServiceTest {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         FeedlineMetrics metrics = new FeedlineMetrics(registry);
         FeedPollerService shutdownPoller = new FeedPollerService(
-                new FeedProperties(), fetcher, normalizer, sources, itemIngest, skipRecorder, metrics, "worker-shutdown");
+                new FeedProperties(), fetcher, normalizer, sources, itemIngest, skipRecorder, metrics, "worker-shutdown", null);
         when(sources.releaseAllLeasesOwnedBy("worker-shutdown")).thenReturn(2);
 
         shutdownPoller.shutdown();

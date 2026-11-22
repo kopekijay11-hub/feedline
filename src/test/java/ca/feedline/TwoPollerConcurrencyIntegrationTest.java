@@ -151,8 +151,8 @@ class TwoPollerConcurrencyIntegrationTest {
         poller2.setLeaseDuration(java.time.Duration.ofMinutes(2));
         p2.setPoller(poller2);
 
-        FeedPollerService first = new FeedPollerService(p1, fetcher, normalizer, sources, itemIngest, skipRecorder, metrics);
-        FeedPollerService second = new FeedPollerService(p2, fetcher, normalizer, sources, itemIngest, skipRecorder, metrics);
+        FeedPollerService first = new FeedPollerService(p1, fetcher, normalizer, sources, itemIngest, skipRecorder, metrics, null, null);
+        FeedPollerService second = new FeedPollerService(p2, fetcher, normalizer, sources, itemIngest, skipRecorder, metrics, null, null);
 
         ExecutorService workers = Executors.newFixedThreadPool(2);
         try {
@@ -200,7 +200,7 @@ class TwoPollerConcurrencyIntegrationTest {
         Poller poller = new Poller();
         poller.setWorkerId("worker-live");
         p.setPoller(poller);
-        FeedPollerService live = new FeedPollerService(p, fetcher, normalizer, sources, itemIngest, skipRecorder, metrics);
+        FeedPollerService live = new FeedPollerService(p, fetcher, normalizer, sources, itemIngest, skipRecorder, metrics, null, null);
         live.pollOnce();
 
         assertThat(requestCount.get()).isEqualTo(before + 1);
