@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feedline Ops Dashboard</title>
+  <link rel="stylesheet" href="/ops.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">F</div>
+        <div>
+          <h1>Feedline Ops</h1>
+          <p class="subtitle">Tower dashboard &middot; local-only &middot; zero external dependencies</p>
+        </div>
+      </div>
+      <div class="topbar-controls">
+        <label class="field compact">
+          <span>Admin API Key</span>
+          <input id="admin-key" type="password" autocomplete="off" spellcheck="false" placeholder="X-Admin-Token (in-memory only)">
+        </label>
+        <button id="save-key" class="btn btn-secondary" type="button">Use Key</button>
+        <button id="clear-key" class="btn btn-ghost" type="button">Clear</button>
+        <label class="toggle">
+          <input id="auto-refresh" type="checkbox" checked>
+          <span>Auto-refresh</span>
+        </label>
+        <button id="refresh-all" class="btn" type="button">Refresh now</button>
+      </div>
+    </header>
+
+    <div id="global-banner" class="banner hidden" role="status" aria-live="polite"></div>
+
+    <main class="grid">
+      <section class="panel panel-wide" aria-labelledby="health-title">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">System</p>
+            <h2 id="health-title">System &amp; Outbox Health</h2>
+          </div>
+          <div class="panel-meta">
+            <span id="health-updated" class="muted">Not loaded</span>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <span class="stat-label">Actuator</span>
+            <span id="actuator-status" class="stat-value">—</span>
+            <span id="actuator-detail" class="stat-detail muted">GET /actuator/health</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Pending</span>
+            <span id="outbox-pending" class="stat-value">—</span>
+            <span class="stat-detail muted">Unpublished outbox</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Published</span>
+            <span id="outbox-published" class="stat-value">—</span>
+            <span class="stat-detail muted">Delivered rows</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Poison</span>
+            <span id="outbox-poison" class="stat-value">—</span>
+            <span class="stat-detail muted">Needs operator action</span>
+          </div>
+        </div>
+        <div id="health-error" class="inline-error hidden"></div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="sources-title">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Ingestion</p>
+            <h2 id="sources-title">Feed Sources</h2>
+          </div>
+          <div class="panel-meta">
+            <span id="sources-summary" class="muted">GET /api/v1/sources/health</span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Status</th>
+                <th>Last Success</th>
+                <th>Failures</th>
+                <th>Backoff / Next Poll</th>
+                <th>Skipped</th>
+                <th>Diagnostics</th>
+              </tr>
+            </thead>
+            <tbody id="sources-body">
+              <tr><td colspan="7" class="empty">Loading sources…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="sources-error" class="inline-error hidden"></div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="items-title">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Explorer</p>
+            <h2 id="items-title">Point-in-Time Items</h2>
+          </div>
+          <div class="panel-meta">
+            <span id="items-summary" class="muted">GET /api/v1/items</span>
+          </div>
+        </div>
+        <form id="items-form" class="filters">
+          <label class="field">
+            <span>Source ID</span>
+            <input id="filter-source" name="source" inputmode="numeric" placeholder="e.g. 1">
+          </label>
+          <label class="field">
+            <span>Search (q)</span>
+            <input id="filter-q" name="q" placeholder="title or summary">
+          </label>
+          <label class="field">
+            <span>Fetched From (UTC ISO-8601)</span>
+            <input id="filter-from" name="fetchedFrom" placeholder="2026-11-21T00:00:00Z">
+          </label>
+          <label class="field">
+            <span>Fetched To (UTC ISO-8601)</span>
+            <input id="filter-to" name="fetchedTo" placeholder="2026-11-21T23:59:59Z">
+          </label>
+          <label class="field field-small">
+            <span>Size</span>
+            <input id="filter-size" name="size" inputmode="numeric" value="20">
+          </label>
+          <div class="filter-actions">
+            <button class="btn" type="submit">Query</button>
+            <button id="items-reset" class="btn btn-secondary" type="button">Reset window</button>
+          </div>
+        </form>
+        <div id="items-error" class="inline-error hidden"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Source</th>
+                <th>Title</th>
+                <th>Published</th>
+                <th>Fetched</th>
+                <th>Link</th>
+              </tr>
+            </thead>
+            <tbody id="items-body">
+              <tr><td colspan="6" class="empty">Run a query to load items.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <div id="items-page-meta" class="muted">No page loaded.</div>
+          <div class="pager-actions">
+            <button id="items-prev" class="btn btn-secondary" type="button" disabled>Previous</button>
+            <button id="items-next" class="btn btn-secondary" type="button" disabled>Next Page</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="admin-title">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Admin</p>
+            <h2 id="admin-title">Outbox Controls</h2>
+          </div>
+          <div class="panel-meta">
+            <span id="admin-summary" class="muted">Token-gated /api/v1/admin/outbox/**</span>
+          </div>
+        </div>
+        <div class="admin-actions">
+          <label class="field compact">
+            <span>Topic filter</span>
+            <input id="poison-topic" placeholder="optional topic">
+          </label>
+          <label class="field compact field-small">
+            <span>Limit</span>
+            <input id="poison-limit" inputmode="numeric" value="50">
+          </label>
+          <button id="poison-refresh" class="btn btn-secondary" type="button">Load Poison</button>
+          <button id="replay-batch" class="btn btn-warn" type="button">Replay Batch</button>
+          <button id="cleanup-published" class="btn btn-danger" type="button">Cleanup Published</button>
+        </div>
+        <div id="admin-error" class="inline-error hidden"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Topic / Key</th>
+                <th>Attempts</th>
+                <th>Poisoned</th>
+                <th>Last Error</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="poison-body">
+              <tr><td colspan="6" class="empty">Enter admin key and load poison entries.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/ops.js" defer></script>
+</body>
+</html>

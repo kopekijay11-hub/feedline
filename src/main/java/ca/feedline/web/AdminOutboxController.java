@@ -1,5 +1,6 @@
 package ca.feedline.web;
 
+import ca.feedline.dto.OutboxStatsDto;
 import ca.feedline.dto.PoisonReplayResponse;
 import ca.feedline.dto.PoisonedOutboxPage;
 import ca.feedline.service.AdminOutboxService;
@@ -17,8 +18,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 @RestController
-@RequestMapping("/api/v1/admin/outbox/poisoned")
+@RequestMapping("/api/v1/admin/outbox")
 @SecurityRequirement(name = "AdminToken")
 public class AdminOutboxController {
 
@@ -28,7 +31,16 @@ public class AdminOutboxController {
         this.service = service;
     }
 
-    @GetMapping
+    @GetMapping("/stats")
+    @Operation(summary = "Outbox stats", description = "Returns pending, published, and poisoned outbox counts.")
+    @ApiResponse(responseCode = "200", description = "outbox stats")
+    @ApiResponse(responseCode = "401", description = "missing or invalid admin token",
+            content = @Content(mediaType = "application/problem+json"))
+    public ResponseEntity<OutboxStatsDto> stats() {
+        return ResponseEntity.ok(service.stats());
+    }
+
+    @GetMapping("/poisoned")
     @Operation(summary = "List poisoned outbox events", description = "Returns poisoned (unpublished) outbox rows, newest first.")
     @ApiResponse(responseCode = "200", description = "page of poisoned events")
     @ApiResponse(responseCode = "400", description = "invalid pagination or unknown parameter",
@@ -51,7 +63,7 @@ public class AdminOutboxController {
         return ResponseEntity.ok(service.listPoisoned(page, size, topic));
     }
 
-    @PostMapping("/{id}/replay")
+    @PostMapping("/poisoned/{id}/replay")
     @Operation(summary = "Replay a single poisoned outbox event")
     @ApiResponse(responseCode = "200", description = "replayed")
     @ApiResponse(responseCode = "404", description = "not found",
@@ -62,7 +74,7 @@ public class AdminOutboxController {
         return ResponseEntity.ok(service.replayOne(id));
     }
 
-    @PostMapping("/replay-batch")
+    @PostMapping("/poisoned/replay-batch")
     @Operation(summary = "Replay up to limit oldest poisoned outbox events")
     @ApiResponse(responseCode = "200", description = "batch replayed")
     @ApiResponse(responseCode = "400", description = "invalid limit",
@@ -76,5 +88,15 @@ public class AdminOutboxController {
             throw new IllegalArgumentException("limit must be between 1 and 500");
         }
         return ResponseEntity.ok(service.replayBatch(topic, limit));
+    }
+
+    @PostMapping("/cleanup")
+    @Operation(summary = "Trigger published outbox cleanup")
+    @ApiResponse(responseCode = "200", description = "cleanup completed")
+    @ApiResponse(responseCode = "401", description = "missing or invalid admin token",
+            content = @Content(mediaType = "application/problem+json"))
+    public ResponseEntity<Map<String, Integer>> cleanup() {
+        int deleted = service.cleanupPublished();
+        return ResponseEntity.ok(Map.of("deleted", deleted));
     }
 }

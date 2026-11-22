@@ -1,0 +1,96 @@
+package ca.feedline;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@Testcontainers
+@SpringBootTest
+@AutoConfigureMockMvc
+class OpsDashboardSeamTest {
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16.16-alpine")
+            .withDatabaseName("feedline")
+            .withUsername("feedline")
+            .withPassword("feedline");
+
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("feed.scheduling-enabled", () -> "false");
+        registry.add("feed.outbox.enabled", () -> "false");
+        registry.add("feed.admin.api-key", () -> "test-admin-token");
+    }
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    void rootServesDashboardHtmlWithoutAdminToken() throws Exception {
+        String body = mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("text/html"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).contains("<title>Feedline Ops Dashboard</title>");
+        assertThat(body).contains("System &amp; Outbox Health");
+        assertThat(body).contains("Feed Sources");
+        assertThat(body).contains("Point-in-Time Items");
+        assertThat(body).contains("Outbox Controls");
+        assertThat(body).contains("/ops.js");
+
+        mockMvc.perform(get("/"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void staticAssetsArePublic() throws Exception {
+        mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("text/html"));
+
+        String css = mockMvc.perform(get("/ops.css"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("text/css"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(css).contains(".panel");
+
+        String js = mockMvc.perform(get("/ops.js"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentType()).containsAnyOf("javascript", "text/plain"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(js).contains("/api/v1/sources/health");
+        assertThat(js).contains("X-Admin-Token");
+        assertThat(js).doesNotContain("feedline-admin-dev-token");
+    }
+
+    @Test
+    void adminEndpointsRemainProtected() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/outbox/stats"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
+
+        mockMvc.perform(get("/api/v1/admin/outbox/poisoned"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
+
+        mockMvc.perform(get("/api/v1/admin/outbox/stats").header("X-Admin-Token", "test-admin-token"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("application/json"));
+    }
+}

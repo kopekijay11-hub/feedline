@@ -1,6 +1,7 @@
 package ca.feedline.service;
 
 import ca.feedline.domain.OutboxEvent;
+import ca.feedline.dto.OutboxStatsDto;
 import ca.feedline.dto.PoisonedOutboxEventDto;
 import ca.feedline.dto.PoisonedOutboxPage;
 import ca.feedline.dto.PoisonReplayResponse;
@@ -25,12 +26,15 @@ public class AdminOutboxService {
     private final OutboxEventRepository outboxEvents;
     private final FeedlineMetrics metrics;
     private final Clock clock;
+    private final OutboxCleanupService cleanupService;
 
     @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Spring injection")
-    public AdminOutboxService(OutboxEventRepository outboxEvents, FeedlineMetrics metrics, Clock clock) {
+    public AdminOutboxService(OutboxEventRepository outboxEvents, FeedlineMetrics metrics, Clock clock,
+                              @org.springframework.beans.factory.annotation.Autowired(required = false) OutboxCleanupService cleanupService) {
         this.outboxEvents = outboxEvents;
         this.metrics = metrics;
         this.clock = clock;
+        this.cleanupService = cleanupService;
     }
 
     @Transactional(readOnly = true)
@@ -85,6 +89,20 @@ public class AdminOutboxService {
         return new PoisonReplayResponse(replayedIds.size(), replayedIds, skippedIds);
     }
 
+
+
+    @Transactional(readOnly = true)
+    public OutboxStatsDto stats() {
+        return new OutboxStatsDto(outboxEvents.countPending(), outboxEvents.countPublished(), outboxEvents.countPoisoned());
+    }
+
+    @Transactional
+    public int cleanupPublished() {
+        if (cleanupService == null) {
+            throw new IllegalStateException("Outbox cleanup is not enabled");
+        }
+        return cleanupService.runCleanup();
+    }
     private PoisonedOutboxEventDto toDto(OutboxEvent event) {
         return new PoisonedOutboxEventDto(
                 event.getId(),
