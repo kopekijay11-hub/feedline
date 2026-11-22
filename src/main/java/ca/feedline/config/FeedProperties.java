@@ -389,7 +389,7 @@ public class FeedProperties {
      */
     public static class Admin {
         private boolean enabled = true;
-        private String apiKey = "feedline-admin-dev-token";
+        private String apiKey;
         private String headerName = "X-Admin-Token";
 
         public boolean isEnabled() {

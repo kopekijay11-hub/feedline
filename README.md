@@ -90,7 +90,7 @@ ETag and Last-Modified are **bookmarks into the remote feed**. They advance only
 
 ## Operator admin API
 
-`/api/v1/admin/**` is protected by the `X-Admin-Token` header (configurable via `feed.admin.header-name` and `FEED_ADMIN_API_KEY`). Missing or invalid tokens return `401 application/problem+json`; a blank/disabled configured token fails closed with `403`. Public endpoints are unaffected.
+`/api/v1/admin/**` is protected by the `X-Admin-Token` header (configurable via `feed.admin.header-name` and `FEED_ADMIN_API_KEY`). The key is REQUIRED via the `FEED_ADMIN_API_KEY` environment variable; the admin API is disabled without it. Missing, invalid, or disabled (unset/blank) configured tokens return `401 application/problem+json`. Public endpoints are unaffected.
 
 - `GET /api/v1/admin/outbox/poisoned` — list poisoned outbox rows (page/size/topic)
 - `POST /api/v1/admin/outbox/poisoned/{id}/replay` — requeue one poisoned event
@@ -100,7 +100,7 @@ ETag and Last-Modified are **bookmarks into the remote feed**. They advance only
 
 Safe production defaults are enabled by default:
 
-- **Admin auth:** `/api/v1/admin/**` requires `X-Admin-Token` (`feed.admin.header-name`) matching `FEED_ADMIN_API_KEY` (default dev token: `feedline-admin-dev-token`; override in non-dev environments). Missing/invalid token returns `401 problem+json`; disabled/blank config fails closed.
+- **Admin auth:** `/api/v1/admin/**` requires `X-Admin-Token` (`feed.admin.header-name`) matching `FEED_ADMIN_API_KEY`. `FEED_ADMIN_API_KEY` is REQUIRED; the admin API is disabled (fail closed, `401`) when it is unset or blank. Missing/invalid token returns `401 problem+json`. Public endpoints and ingestion are unaffected.
 - **Actuator exposure:** only `health,info` are exposed; health details are hidden; readiness/liveness probes enabled.
 - **HTTP bounds:** bounded connect/read timeouts, max body bytes, redirect cap, retries, per-host interval, SSRF loopback blocked by default.
 - **Outbox bounds:** `feed.outbox.batch-size`, `max-attempts`, backoff, and `send-timeout-ms` are clamped to safe ranges.

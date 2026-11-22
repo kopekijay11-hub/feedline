@@ -46,7 +46,7 @@ public class AdminTokenFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         if (admin == null || !admin.isEnabled() || admin.getApiKey() == null || admin.getApiKey().isBlank()) {
             log.warn("Unauthorized admin access attempt from {} to {}", remote, path);
-            writeProblem(response, HttpStatus.FORBIDDEN, "Admin API disabled or token not configured");
+            writeProblem(response, HttpStatus.UNAUTHORIZED, "Admin API disabled or token not configured");
             return;
         }
         String headerName = admin.getHeaderName() == null || admin.getHeaderName().isBlank()
