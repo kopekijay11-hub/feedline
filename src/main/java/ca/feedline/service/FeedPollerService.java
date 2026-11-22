@@ -2,6 +2,7 @@ package ca.feedline.service;
 
 import ca.feedline.config.FeedProperties;
 import ca.feedline.config.FeedProperties.Source;
+import ca.feedline.config.SourceRegistryInitializer;
 import ca.feedline.domain.FeedSource;
 import ca.feedline.repository.FeedSourceRepository;
 import com.rometools.rome.feed.synd.SyndEntry;
@@ -59,7 +60,7 @@ public class FeedPollerService {
     public FeedPollerService(FeedProperties config, FeedFetcher fetcher, FeedNormalizer normalizer,
                              FeedSourceRepository feedSources, ItemIngestService itemIngest,
                              IngestSkipRecorder skipRecorder) {
-        this(config, fetcher, normalizer, feedSources, itemIngest, skipRecorder, null);
+        this(config, fetcher, normalizer, feedSources, itemIngest, skipRecorder, null, null);
     }
 
     public FeedPollerService(FeedProperties config, FeedFetcher fetcher, FeedNormalizer normalizer,
@@ -71,6 +72,13 @@ public class FeedPollerService {
     public FeedPollerService(FeedProperties config, FeedFetcher fetcher, FeedNormalizer normalizer,
                              FeedSourceRepository feedSources, ItemIngestService itemIngest,
                              IngestSkipRecorder skipRecorder, FeedlineMetrics metrics, String workerIdOverride) {
+        this(config, fetcher, normalizer, feedSources, itemIngest, skipRecorder, metrics, workerIdOverride, null);
+    }
+
+    public FeedPollerService(FeedProperties config, FeedFetcher fetcher, FeedNormalizer normalizer,
+                             FeedSourceRepository feedSources, ItemIngestService itemIngest,
+                             IngestSkipRecorder skipRecorder, FeedlineMetrics metrics,
+                             String workerIdOverride, SourceRegistryInitializer sourceRegistryInitializer) {
         this.config = config;
         this.fetcher = fetcher;
         this.normalizer = normalizer;
@@ -78,6 +86,7 @@ public class FeedPollerService {
         this.itemIngest = itemIngest;
         this.skipRecorder = skipRecorder;
         this.metrics = metrics;
+        this.sourceRegistryInitializer = sourceRegistryInitializer;
         if (workerIdOverride != null && !workerIdOverride.isBlank()) {
             this.workerId = workerIdOverride.trim();
         } else {
@@ -104,6 +113,8 @@ public class FeedPollerService {
             this.shutdownTimeout = Duration.ofSeconds(10);
         }
     }
+
+    private final SourceRegistryInitializer sourceRegistryInitializer;
 
     @Autowired(required = false)
     @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Spring injection")
@@ -170,10 +181,38 @@ public class FeedPollerService {
         }
     }
 
+    /**
+     * Blocks until {@link SourceRegistryInitializer} has finished its
+     * initial source seeding. This prevents the first scheduled poll cycle
+     * from racing with the startup initializer on {@code uq_feed_sources_url}.
+     */
+    private void waitForSeedingComplete() {
+        if (sourceRegistryInitializer == null) {
+            return;
+        }
+        long deadline = System.nanoTime() + shutdownTimeout.toNanos();
+        while (!sourceRegistryInitializer.isSeedingComplete() && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(25L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        if (!sourceRegistryInitializer.isSeedingComplete()) {
+            log.warn("Timed out waiting for source registry seeding to complete; proceeding anyway");
+        }
+    }
+
     @Scheduled(fixedDelayString = "${feed.poll-delay:60s}")
     public void pollOnce() {
         if (shuttingDown.get()) {
             return;
+        }
+        // Wait for source registry seeding to complete on cold boot to avoid
+        // racing with SourceRegistryInitializer on uq_feed_sources_url.
+        if (sourceRegistryInitializer != null) {
+            waitForSeedingComplete();
         }
         inFlightCycles.incrementAndGet();
         long started = System.currentTimeMillis();

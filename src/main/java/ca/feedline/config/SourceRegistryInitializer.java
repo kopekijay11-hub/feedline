@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 public class SourceRegistryInitializer implements ApplicationRunner {
@@ -17,15 +18,21 @@ public class SourceRegistryInitializer implements ApplicationRunner {
 
     private final FeedProperties config;
     private final FeedSourceRepository feedSources;
+    private final AtomicBoolean seedingComplete = new AtomicBoolean(false);
 
     public SourceRegistryInitializer(FeedProperties config, FeedSourceRepository feedSources) {
         this.config = config;
         this.feedSources = feedSources;
     }
 
+    public boolean isSeedingComplete() {
+        return seedingComplete.get();
+    }
+
     @Override
     public void run(ApplicationArguments args) {
         if (config.getSources() == null) {
+            seedingComplete.set(true);
             return;
         }
         for (FeedProperties.Source sourceConfig : config.getSources()) {
@@ -37,33 +44,39 @@ public class SourceRegistryInitializer implements ApplicationRunner {
                 if (name == null || name.isBlank()) {
                     name = sourceConfig.getUrl();
                 }
-                Optional<FeedSource> existing = feedSources.findByUrl(sourceConfig.getUrl());
-                if (existing != null && existing.isPresent()) {
-                    FeedSource source = existing.get();
-                    boolean changed = false;
-                    if (!name.equals(source.getName())) {
-                        source.setName(name);
-                        changed = true;
+                int inserted = feedSources.insertIfAbsent(
+                        name, sourceConfig.getUrl(), sourceConfig.isEnabled());
+                if (inserted > 0) {
+                    // New row inserted, fetch it to log the ID
+                    Optional<FeedSource> created = feedSources.findByUrl(sourceConfig.getUrl());
+                    created.ifPresent(source ->
+                        log.info("Registered feed source {} (id={})", source.getUrl(), source.getId()));
+                } else {
+                    // Concurrent insert won the race; fetch existing and sync metadata
+                    Optional<FeedSource> existing = feedSources.findByUrl(sourceConfig.getUrl());
+                    if (existing != null && existing.isPresent()) {
+                        FeedSource source = existing.get();
+                        boolean changed = false;
+                        if (!name.equals(source.getName())) {
+                            source.setName(name);
+                            changed = true;
+                        }
+                        if (source.isEnabled() != sourceConfig.isEnabled()) {
+                            source.setEnabled(sourceConfig.isEnabled());
+                            changed = true;
+                        }
+                        if (changed) {
+                            feedSources.save(source);
+                            log.info("Synced feed source {} (id={}) with configured metadata",
+                                    source.getUrl(), source.getId());
+                        }
                     }
-                    if (source.isEnabled() != sourceConfig.isEnabled()) {
-                        source.setEnabled(sourceConfig.isEnabled());
-                        changed = true;
-                    }
-                    if (changed) {
-                        feedSources.save(source);
-                        log.info("Synced feed source {} (id={}) with configured metadata",
-                                source.getUrl(), source.getId());
-                    }
-                    continue;
                 }
-                FeedSource source = new FeedSource(name, sourceConfig.getUrl());
-                source.setEnabled(sourceConfig.isEnabled());
-                feedSources.save(source);
-                log.info("Registered feed source {} (id={})", source.getUrl(), source.getId());
             } catch (Exception e) {
                 log.warn("Failed to sync feed source {} with registry: {}",
                         sourceConfig.getUrl(), e.getMessage());
             }
         }
+        seedingComplete.set(true);
     }
 }

@@ -19,6 +19,28 @@ public interface FeedSourceRepository extends JpaRepository<FeedSource, Long> {
 
     Optional<FeedSource> findByUrl(String url);
 
+    /**
+     * Inserts a new feed source if the URL does not already exist.
+     * Uses PostgreSQL {@code ON CONFLICT (url) DO NOTHING} to avoid
+     * unique constraint violations (SQLState 23505) when multiple threads
+     * attempt to seed the same source concurrently during cold boot.
+     *
+     * @param name the feed source name
+     * @param url the feed source URL (unique)
+     * @param enabled whether the source is enabled
+     * @return 1 if a new row was inserted, 0 if a row with the same URL already existed
+     */
+    @Modifying
+    @Transactional
+    @Query(value = """
+            INSERT INTO feed_sources (name, url, enabled)
+            VALUES (:name, :url, :enabled)
+            ON CONFLICT (url) DO NOTHING
+            """, nativeQuery = true)
+    int insertIfAbsent(@Param("name") String name,
+                       @Param("url") String url,
+                       @Param("enabled") boolean enabled);
+
     @Query(value = """
             SELECT * FROM feed_sources
             WHERE enabled = true
