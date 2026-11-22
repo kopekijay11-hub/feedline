@@ -142,4 +142,4 @@ Feedline is a learning showcase, deliberately small — the point is the enginee
 
 ## License
 
-See [LICENSE](LICENSE). Published for review and portfolio purposes; all rights reserved.
+See [LICENSE](LICENSE) — MIT License.
