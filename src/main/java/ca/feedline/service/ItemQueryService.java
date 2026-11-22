@@ -1,10 +1,12 @@
 package ca.feedline.service;
 
+import ca.feedline.config.FeedProperties;
 import ca.feedline.domain.Item;
 import ca.feedline.dto.ItemDto;
 import ca.feedline.dto.ItemsPage;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,9 +21,20 @@ import java.util.List;
 public class ItemQueryService {
 
     private final EntityManager entityManager;
+    private final FeedProperties.Items itemsConfig;
 
-    public ItemQueryService(EntityManager entityManager) {
+    ItemQueryService(EntityManager entityManager) {
+        this(entityManager, new FeedProperties().getItems());
+    }
+
+    @Autowired
+    public ItemQueryService(EntityManager entityManager, FeedProperties feedProperties) {
+        this(entityManager, feedProperties == null ? new FeedProperties().getItems() : feedProperties.getItems());
+    }
+
+    ItemQueryService(EntityManager entityManager, FeedProperties.Items itemsConfig) {
         this.entityManager = entityManager;
+        this.itemsConfig = itemsConfig == null ? new FeedProperties().getItems() : itemsConfig;
     }
 
     public ItemsPage list(Long source, String q, Instant from, Instant to, Instant fetchedFrom,
@@ -32,7 +45,7 @@ public class ItemQueryService {
         if (fetchedFrom != null && fetchedTo != null && fetchedFrom.isAfter(fetchedTo)) {
             throw new IllegalArgumentException("fetchedFrom must not be after fetchedTo");
         }
-        int size = requestedSize <= 0 ? 20 : Math.min(requestedSize, 100);
+        int size = requestedSize <= 0 ? itemsConfig.getDefaultPageSize() : Math.min(requestedSize, itemsConfig.getMaxPageSize());
         Cursor c = decodeCursor(cursor);
 
         StringBuilder where = new StringBuilder("WHERE 1=1");
@@ -40,7 +53,7 @@ public class ItemQueryService {
             where.append(" AND source_id = :source");
         }
         if (q != null && !q.isBlank()) {
-            where.append(" AND search_vector @@ plainto_tsquery('english', :q)");
+            where.append(" AND search_vector @@ plainto_tsquery(CAST(:searchLanguage AS regconfig), :q)");
         }
         if (from != null) {
             where.append(" AND published_at >= :from");
@@ -130,6 +143,7 @@ public class ItemQueryService {
         }
         if (text != null && !text.isBlank()) {
             q.setParameter("q", text);
+            q.setParameter("searchLanguage", itemsConfig.getSearchLanguage());
         }
         if (from != null) {
             q.setParameter("from", java.sql.Timestamp.from(from));

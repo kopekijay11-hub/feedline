@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added plug-and-play `feed.items.*` configuration: `default-page-size`, `max-page-size`, and `search-language`, with env-overridable defaults and safe clamping/fallback at binding time.
+- Wired items query defaults into `ItemsController` and `ItemQueryService` without changing keyset pagination semantics, fetched-range validation, or 400 problem+json behavior.
+- Added unit/seam coverage for items config clamping and custom `feed.items.*` overrides.
+
 ## M5 Phase 4 — End-to-end poll-to-replay-to-cleanup integration, deployment & config hardening, docs sync.
 - Added `FeedlineLifecycleE2ETest`: full lifecycle against real PostgreSQL and real Kafka (poll/ingest with robots stub, atomic outbox emission, lease release, transient relay failures to poison quarantine, V12 `last_attempt_at`/sanitized `last_error`, admin 401/200, replay to real Kafka with preserved `eventKey`/payload/UTF-8 headers, health, fetchedFrom/fetchedTo item filtering, and retention cleanup preserving pending/poisoned rows).
 - Added point-in-time `fetchedFrom`/`fetchedTo` query filters to `GET /api/v1/items`.

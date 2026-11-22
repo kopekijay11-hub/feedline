@@ -93,6 +93,8 @@ public class FeedProperties {
 
     private Normalizer normalizer = new Normalizer();
 
+    private Items items = new Items();
+
     public List<Source> getSources() {
         return sources;
     }
@@ -235,6 +237,14 @@ public class FeedProperties {
 
     public void setNormalizer(Normalizer normalizer) {
         this.normalizer = normalizer == null ? new Normalizer() : normalizer;
+    }
+
+    public Items getItems() {
+        return items;
+    }
+
+    public void setItems(Items items) {
+        this.items = items == null ? new Items() : items;
     }
 
     /**
@@ -535,6 +545,56 @@ public class FeedProperties {
 
         public void setGuidMaxLength(int guidMaxLength) {
             this.guidMaxLength = guidMaxLength <= 0 ? 512 : guidMaxLength;
+        }
+    }
+
+    /**
+     * Items API query defaults.
+     *
+     * <p>Values are clamped so a misconfigured environment cannot produce an
+     * oversized page, a non-positive default, or a blank search language.
+     */
+    public static class Items {
+        static final int DEFAULT_PAGE_SIZE = 20;
+        static final int MAX_PAGE_SIZE = 100;
+        static final String DEFAULT_SEARCH_LANGUAGE = "english";
+
+        private int defaultPageSize = DEFAULT_PAGE_SIZE;
+        private int maxPageSize = MAX_PAGE_SIZE;
+        private String searchLanguage = DEFAULT_SEARCH_LANGUAGE;
+
+        public int getDefaultPageSize() {
+            return defaultPageSize;
+        }
+
+        public void setDefaultPageSize(int defaultPageSize) {
+            this.defaultPageSize = defaultPageSize <= 0 ? DEFAULT_PAGE_SIZE : defaultPageSize;
+            if (this.defaultPageSize > this.maxPageSize) {
+                this.defaultPageSize = this.maxPageSize;
+            }
+        }
+
+        public int getMaxPageSize() {
+            return maxPageSize;
+        }
+
+        public void setMaxPageSize(int maxPageSize) {
+            this.maxPageSize = maxPageSize <= 0 ? MAX_PAGE_SIZE : maxPageSize;
+            if (this.defaultPageSize > this.maxPageSize) {
+                this.defaultPageSize = this.maxPageSize;
+            }
+        }
+
+        public String getSearchLanguage() {
+            return searchLanguage;
+        }
+
+        public void setSearchLanguage(String searchLanguage) {
+            if (searchLanguage == null || searchLanguage.isBlank()) {
+                this.searchLanguage = DEFAULT_SEARCH_LANGUAGE;
+                return;
+            }
+            this.searchLanguage = searchLanguage.trim();
         }
     }
 
