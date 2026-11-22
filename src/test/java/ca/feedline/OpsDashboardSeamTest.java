@@ -76,7 +76,7 @@ class OpsDashboardSeamTest {
                 .andReturn().getResponse().getContentAsString();
         assertThat(js).contains("/api/v1/sources/health");
         assertThat(js).contains("X-Admin-Token");
-        assertThat(js).doesNotContain("feedline-admin-dev-token");
+        assertThat(js).doesNotContain("feedline-admin-dev" + "-token");
     }
 
     @Test

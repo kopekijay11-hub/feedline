@@ -130,7 +130,7 @@ feed:
 
   admin:
     enabled: true
-    api-key: ${FEED_ADMIN_API_KEY:feedline-admin-dev-token}
+    api-key: ${FEED_ADMIN_API_KEY}
     header-name: X-Admin-Token
 
   poller:
