@@ -72,7 +72,7 @@ No paid services, no cloud, no API keys. Everything is open source.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/v1/items` | Page of items, newest first; `source`, `q`, `from`, `to`, `fetchedFrom`, `fetchedTo`, `cursor`, `size` (max 100). Keyset pagination on `(fetched_at, id)` with a `nextCursor` in the response. `from`/`to` filter `published_at`; `fetchedFrom`/`fetchedTo` filter `fetched_at` (point-in-time ingest window). |
+| `GET /api/v1/items` | Page of items, newest first; `source`, `q`, `from`, `to`, `fetchedFrom`, `fetchedTo`, `cursor`, `size` (default/max from `feed.items.*`, defaults 20/100). Keyset pagination on `(fetched_at, id)` with a `nextCursor` in the response. `from`/`to` filter `published_at`; `fetchedFrom`/`fetchedTo` filter `fetched_at` (point-in-time ingest window). |
 | `GET /api/v1/items/{id}` | One item, or a RFC 7807 `problem+json` error. |
 | `GET /api/v1/sources/health` | Per-source fetch state, backoff/error state, and last successful poll; mirrors readiness status. |
 | `GET /api/v1/admin/outbox/poisoned` | Admin-only: list poisoned outbox rows (`page`, `size`, optional `topic`). Requires `X-Admin-Token`. |
@@ -104,6 +104,7 @@ Safe production defaults are enabled by default:
 - **Actuator exposure:** only `health,info` are exposed; health details are hidden; readiness/liveness probes enabled.
 - **HTTP bounds:** bounded connect/read timeouts, max body bytes, redirect cap, retries, per-host interval, SSRF loopback blocked by default.
 - **Outbox bounds:** `feed.outbox.batch-size`, `max-attempts`, backoff, and `send-timeout-ms` are clamped to safe ranges.
+- **Items query bounds:** `feed.items.default-page-size`, `max-page-size`, and `search-language` are env-overridable and clamped/fallback-safe at binding time.
 - **DB pool:** bounded HikariCP defaults (`DB_POOL_MAX_SIZE=10`, `DB_POOL_MIN_IDLE=2`, connection/idle/max-lifetime timeouts).
 - **Graceful shutdown:** `server.shutdown=graceful`, `spring.lifecycle.timeout-per-shutdown-phase=30s`, scheduler await-termination, poller shutdown lease release, relay/cleanup stop accepting new work.
 
@@ -118,6 +119,7 @@ Key environment variables:
 | `FEED_ADMIN_API_KEY` | Admin API token for `/api/v1/admin/**` |
 | `FEED_POLLER_WORKER_ID` | Stable poller worker identity for leases/diagnostics |
 | `DB_POOL_MAX_SIZE`, `DB_POOL_MIN_IDLE` | HikariCP pool sizing |
+| `FEED_ITEMS_DEFAULT_PAGE_SIZE`, `FEED_ITEMS_MAX_PAGE_SIZE`, `FEED_ITEMS_SEARCH_LANGUAGE` | Items query defaults/caps (`feed.items.*`) |
 | `JAVA_TOOL_OPTIONS` | JVM flags (e.g. `-Xmx768m`) |
 
 Operational runbook checks:

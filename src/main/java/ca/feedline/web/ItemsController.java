@@ -1,5 +1,6 @@
 package ca.feedline.web;
 
+import ca.feedline.config.FeedProperties;
 import ca.feedline.dto.ItemDto;
 import ca.feedline.dto.ItemsPage;
 import ca.feedline.service.ItemQueryService;
@@ -25,16 +26,20 @@ import java.time.Instant;
 public class ItemsController {
 
     private final ItemQueryService queryService;
+    private final FeedProperties.Items itemsConfig;
 
-    public ItemsController(ItemQueryService queryService) {
+    public ItemsController(ItemQueryService queryService, FeedProperties feedProperties) {
         this.queryService = queryService;
+        FeedProperties.Items configured = feedProperties == null ? new FeedProperties().getItems() : feedProperties.getItems();
+        this.itemsConfig = configured == null ? new FeedProperties().getItems() : configured;
     }
 
     @GetMapping
     @Operation(
             summary = "List items (keyset pagination)",
             description = "Keyset pagination on (fetched_at, id), default sort fetched_at DESC, id DESC. "
-                    + "Page size capped at 100 (default 20). Response carries items, nextCursor, total, hasMore. "
+                    + "Page size capped at feed.items.max-page-size (default 100, configured default feed.items.default-page-size 20). "
+                    + "Response carries items, nextCursor, total, hasMore. "
                     + "Filters: source (source id), q (full-text over title+summary tsvector), "
                     + "published date range from/to. Null policy: items with null published_at are "
                     + "EXCLUDED from date-range results (from/to); they appear in the default listing "
@@ -54,13 +59,14 @@ public class ItemsController {
             @Parameter(description = "Fetched-at upper bound (inclusive), point-in-time ingest window")
             @RequestParam(name = "fetchedTo", required = false) Instant fetchedTo,
             @Parameter(description = "Opaque keyset cursor from a previous page") @RequestParam(name = "cursor", required = false) String cursor,
-            @Parameter(description = "Page size (max 100, default 20)") @RequestParam(name = "size", required = false) Integer size) {
-        int pageSize = (size == null) ? 20 : size;
+            @Parameter(description = "Page size (max feed.items.max-page-size, default feed.items.default-page-size)")
+            @RequestParam(name = "size", required = false) Integer size) {
+        int pageSize = (size == null) ? itemsConfig.getDefaultPageSize() : size;
         if (pageSize <= 0) {
-            pageSize = 20;
+            pageSize = itemsConfig.getDefaultPageSize();
         }
-        if (pageSize > 100) {
-            pageSize = 100;
+        if (pageSize > itemsConfig.getMaxPageSize()) {
+            pageSize = itemsConfig.getMaxPageSize();
         }
         try {
             ItemsPage page = queryService.list(source, q, from, to, fetchedFrom, fetchedTo, cursor, pageSize);

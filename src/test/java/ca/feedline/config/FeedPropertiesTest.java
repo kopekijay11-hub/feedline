@@ -69,4 +69,51 @@ class FeedPropertiesTest {
         properties.getOutbox().setPollDelay(null);
         assertThat(properties.getOutbox().getPollDelay()).isEqualTo("2000");
     }
+
+    @Test
+    void itemsDefaultsAndClamping() {
+        FeedProperties properties = new FeedProperties();
+        FeedProperties.Items items = properties.getItems();
+
+        assertThat(items.getDefaultPageSize()).isEqualTo(20);
+        assertThat(items.getMaxPageSize()).isEqualTo(100);
+        assertThat(items.getSearchLanguage()).isEqualTo("english");
+
+        items.setDefaultPageSize(0);
+        assertThat(items.getDefaultPageSize()).isEqualTo(20);
+
+        items.setDefaultPageSize(-1);
+        assertThat(items.getDefaultPageSize()).isEqualTo(20);
+
+        items.setMaxPageSize(0);
+        assertThat(items.getMaxPageSize()).isEqualTo(100);
+
+        items.setMaxPageSize(-5);
+        assertThat(items.getMaxPageSize()).isEqualTo(100);
+
+        items.setMaxPageSize(50);
+        assertThat(items.getMaxPageSize()).isEqualTo(50);
+        items.setDefaultPageSize(200);
+        assertThat(items.getDefaultPageSize()).isEqualTo(50);
+
+        items.setSearchLanguage("  ");
+        assertThat(items.getSearchLanguage()).isEqualTo("english");
+
+        items.setSearchLanguage(null);
+        assertThat(items.getSearchLanguage()).isEqualTo("english");
+
+        items.setSearchLanguage(" simple ");
+        assertThat(items.getSearchLanguage()).isEqualTo("simple");
+    }
+
+    @Test
+    void itemsDefaultIsClampedWhenMaxReducedFirst() {
+        FeedProperties properties = new FeedProperties();
+        FeedProperties.Items items = properties.getItems();
+
+        items.setDefaultPageSize(50);
+        items.setMaxPageSize(25);
+        assertThat(items.getDefaultPageSize()).isEqualTo(25);
+        assertThat(items.getMaxPageSize()).isEqualTo(25);
+    }
 }

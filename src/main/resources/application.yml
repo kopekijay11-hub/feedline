@@ -153,6 +153,13 @@ feed:
     link-max-length: 1024
     guid-max-length: 512
 
+  items:
+    # Items query defaults. default-page-size is clamped to 1..max-page-size;
+    # max-page-size is clamped to >=1; search-language falls back to "english".
+    default-page-size: ${FEED_ITEMS_DEFAULT_PAGE_SIZE:20}
+    max-page-size: ${FEED_ITEMS_MAX_PAGE_SIZE:100}
+    search-language: ${FEED_ITEMS_SEARCH_LANGUAGE:english}
+
   # Feed sources
   sources:
     - name: BBC News World
