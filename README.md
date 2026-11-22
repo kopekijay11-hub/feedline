@@ -138,7 +138,7 @@ Operational runbook checks:
 
 ## About this build
 
-Feedline was produced by an operator directing coding agents: source, tests, and documentation were written by agents and verified against the test suite and the milestone reports. It is a learning showcase, deliberately small — the point is the engineering discipline around it, not the size of the service.
+Feedline is a learning showcase, deliberately small — the point is the engineering discipline around it, not the size of the service. Source, tests, and documentation are verified against the test suite and the milestone reports.
 
 ## License
 
