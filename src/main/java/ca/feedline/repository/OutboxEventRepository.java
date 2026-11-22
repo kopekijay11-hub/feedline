@@ -53,6 +53,12 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
     long countPoisoned();
 
     @Query(value = """
+            SELECT COUNT(*) FROM outbox_events
+            WHERE published_at IS NOT NULL
+            """, nativeQuery = true)
+    long countPublished();
+
+    @Query(value = """
             SELECT MIN(created_at) FROM outbox_events
             WHERE published_at IS NULL AND poisoned_at IS NULL
             """, nativeQuery = true)
