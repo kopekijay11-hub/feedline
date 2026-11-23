@@ -241,7 +241,8 @@ public class FeedFetcher {
                     }
                 } else if (statusCode >= 200 && statusCode < 300) {
                     String bodyText = readBodyWithLimit(body,
-                            response.headers().firstValue("Content-Type").orElse(null));
+                            response.headers().firstValue("Content-Type").orElse(null),
+                            response.headers().firstValue("Content-Encoding").orElse(null));
                     if (bodyText == null) {
                         log.warn("Feed {} body exceeds maximum size of {} bytes", uri, config.maxBodyBytes());
                         result = FeedFetchResult.failure(413, uri.toString());
@@ -353,9 +354,23 @@ public class FeedFetcher {
         return 100L * (1L << attempt);
     }
 
-    private String readBodyWithLimit(InputStream body, String contentType) {
+    private String readBodyWithLimit(InputStream body, String contentType, String contentEncoding) {
         if (body == null) {
             return "";
+        }
+        InputStream source = body;
+        if (contentEncoding != null) {
+            String enc = contentEncoding.toLowerCase(java.util.Locale.ROOT).trim();
+            try {
+                if (enc.contains("gzip")) {
+                    source = new java.util.zip.GZIPInputStream(body);
+                } else if (enc.contains("deflate")) {
+                    source = new java.util.zip.InflaterInputStream(body);
+                }
+            } catch (IOException e) {
+                log.error("Error opening decompressed response body: {}", e.getMessage());
+                return null;
+            }
         }
         try {
             byte[] buffer = new byte[8192];
@@ -363,7 +378,7 @@ public class FeedFetcher {
             long totalRead = 0;
             int read;
 
-            while ((read = body.read(buffer)) != -1) {
+            while ((read = source.read(buffer)) != -1) {
                 totalRead += read;
                 if (totalRead > config.maxBodyBytes()) {
                     log.warn("Body exceeds maximum size of {} bytes, aborting", config.maxBodyBytes());
@@ -376,6 +391,13 @@ public class FeedFetcher {
         } catch (IOException e) {
             log.error("Error reading response body: {}", e.getMessage());
             return null;
+        } finally {
+            if (source != body) {
+                try {
+                    source.close();
+                } catch (IOException ignored) {
+                }
+            }
         }
     }
 
