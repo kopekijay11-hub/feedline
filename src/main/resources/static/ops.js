@@ -267,11 +267,8 @@
       ui.adminSummary.textContent = `Admin token active — pending ${data.pendingCount}, poison ${data.poisonedCount}`;
       clearError(ui.healthError);
       return true;
-    } catch (err) {
-      ui.outboxPending.textContent = '—';
-      ui.outboxPublished.textContent = '—';
-      ui.outboxPoison.textContent = '—';
-      const closed = adminClosedMessage(err);
+     } catch (err) {
+       const closed = adminClosedMessage(err);
       if (closed) {
         ui.adminSummary.textContent = closed;
       } else if (err.status === 401 || err.status === 403) {
@@ -605,9 +602,10 @@
     }
     if (enabled) {
       state.refreshTimer = setInterval(() => {
-        const ae = document.activeElement;
-        const adminFocused = !!ae && (ui.adminError.contains(ae) || ui.poisonBody.contains(ae) || ui.poisonTopic === ae || ui.poisonLimit === ae || ui.adminKey === ae || ui.replayBatch === ae || ui.cleanupPublished === ae || ui.poisonRefresh === ae);
-        if (adminFocused || state.adminBusy) return;
+         const ae = document.activeElement;
+         const adminFocused = !!ae && (ui.adminError.contains(ae) || ui.poisonBody.contains(ae) || ui.poisonTopic === ae || ui.poisonLimit === ae || ui.adminKey === ae || ui.replayBatch === ae || ui.cleanupPublished === ae || ui.poisonRefresh === ae);
+         const tableFocused = !!ae && (ui.sourcesBody.contains(ae) || ui.itemsBody.contains(ae) || ui.poisonBody.contains(ae));
+         if (adminFocused || tableFocused || state.adminBusy) return;
         loadHealth(true).catch(() => {});
         if (state.adminKey && !adminFocused && !state.adminBusy) loadPoison(true).catch(() => {});
       }, 15000);

@@ -49,6 +49,8 @@ Surefire: `Tests run: 162, Failures: 0, Errors: 0, Skipped: 0`
 SpotBugs: `BugInstance size is 0` / `No errors/warnings found`
 
 ## Screenshot
-Headless rendering unavailable in this environment (Firefox GL framebuffer failure); layout verified via served page. Screenshot artifact not captured.
+Captured via headless Chromium against the served static page (desktop width 1280×900): `ops-dashboard-ux-screenshot.png` (committed alongside this report).
+
+![Finished ops dashboard](ops-dashboard-ux-screenshot.png)
 
 Branch: `ops-dashboard-ux`. No merge performed. No cleanup deletions.
