@@ -10,16 +10,16 @@
   <div class="app">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark">F</div>
+        <div class="brand-mark" aria-hidden="true">F</div>
         <div>
           <h1>Feedline Ops</h1>
-          <p class="subtitle">Tower dashboard &middot; local-only &middot; zero external dependencies</p>
+          <p class="subtitle">Operations dashboard &middot; works offline &middot; no external dependencies</p>
         </div>
       </div>
       <div class="topbar-controls">
         <label class="field compact">
-          <span>Admin API Key</span>
-          <input id="admin-key" type="password" autocomplete="off" spellcheck="false" placeholder="X-Admin-Token (in-memory only)">
+          <span>Admin server key (in memory only)</span>
+          <input id="admin-key" type="password" autocomplete="off" spellcheck="false" placeholder="X-Admin-Token">
         </label>
         <button id="save-key" class="btn btn-secondary" type="button">Use Key</button>
         <button id="clear-key" class="btn btn-ghost" type="button">Clear</button>
@@ -31,55 +31,65 @@
       </div>
     </header>
 
-    <div id="global-banner" class="banner hidden" role="status" aria-live="polite"></div>
+    <section id="overall-status" class="status-banner" role="status" aria-live="polite" data-state="loading">
+      <div class="status-main">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="overall-status-text">Checking service health&hellip;</span>
+      </div>
+      <div id="overall-status-detail" class="status-detail">Loading sources and health checks&hellip;</div>
+    </section>
 
     <main class="grid">
-      <section class="panel panel-wide" aria-labelledby="health-title">
+      <section class="panel panel-wide" aria-labelledby="health-title" data-panel="health">
         <div class="panel-head">
           <div>
             <p class="eyebrow">System</p>
             <h2 id="health-title">System &amp; Outbox Health</h2>
+            <p class="panel-help">Is the service running, and are queued messages (the outbox) being delivered?</p>
           </div>
           <div class="panel-meta">
+            <span id="health-state" class="panel-state state-loading" role="status">Loading&hellip;</span>
             <span id="health-updated" class="muted">Not loaded</span>
           </div>
         </div>
-        <div class="stats">
+        <div class="stats" aria-label="Health numbers">
           <div class="stat">
-            <span class="stat-label">Actuator</span>
+            <span class="stat-label">Service health (system check)</span>
             <span id="actuator-status" class="stat-value">—</span>
             <span id="actuator-detail" class="stat-detail muted">GET /actuator/health</span>
           </div>
-          <div class="stat">
-            <span class="stat-label">Pending</span>
+          <div class="stat stat-primary">
+            <span class="stat-label">Messages waiting (pending)</span>
             <span id="outbox-pending" class="stat-value">—</span>
-            <span class="stat-detail muted">Unpublished outbox</span>
+            <span class="stat-detail muted">Unpublished outbox rows</span>
           </div>
           <div class="stat">
-            <span class="stat-label">Published</span>
+            <span class="stat-label">Messages delivered (published)</span>
             <span id="outbox-published" class="stat-value">—</span>
             <span class="stat-detail muted">Delivered rows</span>
           </div>
-          <div class="stat">
-            <span class="stat-label">Poison</span>
+          <div class="stat stat-primary">
+            <span class="stat-label">Poisoned messages</span>
             <span id="outbox-poison" class="stat-value">—</span>
             <span class="stat-detail muted">Needs operator action</span>
           </div>
         </div>
-        <div id="health-error" class="inline-error hidden"></div>
+        <div id="health-error" class="inline-error hidden" role="alert"></div>
       </section>
 
-      <section class="panel panel-wide" aria-labelledby="sources-title">
+      <section class="panel panel-wide" aria-labelledby="sources-title" data-panel="sources">
         <div class="panel-head">
           <div>
             <p class="eyebrow">Ingestion</p>
             <h2 id="sources-title">Feed Sources</h2>
+            <p class="panel-help">Are feeds being polled successfully? A source needs attention when it is degraded, backing off, or stale.</p>
           </div>
           <div class="panel-meta">
+            <span id="sources-state" class="panel-state state-loading" role="status">Loading&hellip;</span>
             <span id="sources-summary" class="muted">GET /api/v1/sources/health</span>
           </div>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap" tabindex="0">
           <table>
             <thead>
               <tr>
@@ -93,20 +103,22 @@
               </tr>
             </thead>
             <tbody id="sources-body">
-              <tr><td colspan="7" class="empty">Loading sources…</td></tr>
+              <tr><td colspan="7" class="empty">Loading sources&hellip;</td></tr>
             </tbody>
           </table>
         </div>
-        <div id="sources-error" class="inline-error hidden"></div>
+        <div id="sources-error" class="inline-error hidden" role="alert"></div>
       </section>
 
-      <section class="panel panel-wide" aria-labelledby="items-title">
+      <section class="panel panel-wide" aria-labelledby="items-title" data-panel="items">
         <div class="panel-head">
           <div>
             <p class="eyebrow">Explorer</p>
             <h2 id="items-title">Point-in-Time Items</h2>
+            <p class="panel-help">Search the items that have been ingested. Links open only when they use http or https.</p>
           </div>
           <div class="panel-meta">
+            <span id="items-state" class="panel-state state-empty" role="status">Empty</span>
             <span id="items-summary" class="muted">GET /api/v1/items</span>
           </div>
         </div>
@@ -136,8 +148,8 @@
             <button id="items-reset" class="btn btn-secondary" type="button">Reset window</button>
           </div>
         </form>
-        <div id="items-error" class="inline-error hidden"></div>
-        <div class="table-wrap">
+        <div id="items-error" class="inline-error hidden" role="alert"></div>
+        <div class="table-wrap" tabindex="0">
           <table>
             <thead>
               <tr>
@@ -163,13 +175,15 @@
         </div>
       </section>
 
-      <section class="panel panel-wide" aria-labelledby="admin-title">
+      <section class="panel panel-wide" aria-labelledby="admin-title" data-panel="admin">
         <div class="panel-head">
           <div>
             <p class="eyebrow">Admin</p>
             <h2 id="admin-title">Outbox Controls</h2>
+            <p class="panel-help">Manual repair tools for poisoned messages (the outbox). Admin actions require the server key FEED_ADMIN_API_KEY, set on the server. If the server has no key configured, the admin API is closed by design and these calls return 401.</p>
           </div>
           <div class="panel-meta">
+            <span id="admin-state" class="panel-state state-empty" role="status">Empty</span>
             <span id="admin-summary" class="muted">Token-gated /api/v1/admin/outbox/**</span>
           </div>
         </div>
@@ -186,8 +200,8 @@
           <button id="replay-batch" class="btn btn-warn" type="button">Replay Batch</button>
           <button id="cleanup-published" class="btn btn-danger" type="button">Cleanup Published</button>
         </div>
-        <div id="admin-error" class="inline-error hidden"></div>
-        <div class="table-wrap">
+        <div id="admin-error" class="inline-error hidden" role="alert"></div>
+        <div class="table-wrap" tabindex="0">
           <table>
             <thead>
               <tr>
