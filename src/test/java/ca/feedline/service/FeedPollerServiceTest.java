@@ -227,6 +227,24 @@ class FeedPollerServiceTest {
         return source;
     }
 
+    @Test
+    void soft404HtmlErrorPage_recordsFailureWithoutAdvancingValidatorsOrStoringItems() {
+        FeedSource stored = storedSource();
+        when(sources.findByUrl(URL)).thenReturn(Optional.of(stored));
+        when(sources.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fetcher.fetch(URL, OLD_ETAG, OLD_LAST_MODIFIED))
+                .thenReturn(new FeedFetchResult(200,
+                        "<html><head><title>404 Not Found</title></head><body>Page not found</body></html>",
+                        URL, "\"new-etag\"", "Wed, 20 Nov 2025 00:00:00 GMT"));
+
+        assertThat(poller.pollSingleSource(new Source("Fixture", URL))).isZero();
+
+        assertThat(stored.getLastErrorClass()).isEqualTo("PARSE");
+        assertThat(stored.getEtag()).isEqualTo(OLD_ETAG);
+        assertThat(stored.getLastModified()).isEqualTo(OLD_LAST_MODIFIED);
+        verifyNoInteractions(itemIngest, skipRecorder);
+    }
+
     private FeedFetchResult clean200() {
         String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                 + "<rss version=\"2.0\"><channel><title>Fixture</title>"
