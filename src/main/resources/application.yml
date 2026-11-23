@@ -171,9 +171,6 @@ feed:
     - name: Yahoo News Top Stories
       url: https://news.yahoo.com/rss/topstories
       enabled: true
-    - name: MarketWatch Top Stories
-      url: https://feeds.content.dowjones.io/public/rss/mw_topstories
-      enabled: true
     - name: Bloomberg Markets
       url: https://feeds.bloomberg.com/markets/news.rss
       enabled: true

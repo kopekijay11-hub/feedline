@@ -36,7 +36,7 @@
 
 ## What it does
 
-A poll cycle walks the ten feeds configured in `application.yml` (BBC, The Verge, Yahoo, MarketWatch, Bloomberg, Investing.com, FXStreet, Federal Reserve, Bank of Canada, CNBC). For each source it:
+A poll cycle walks the nine feeds configured in `application.yml` (BBC, The Verge, Yahoo, Bloomberg, Investing.com, FXStreet, Federal Reserve, Bank of Canada, CNBC). For each source it:
 
 1. checks `robots.txt` for the origin and enforces the per-host request interval;
 2. fetches with conditional GET (`If-None-Match` / `If-Modified-Since`), bounded redirects, timeouts, and retries;
@@ -50,7 +50,7 @@ Flyway owns the schema from V1 through V13 (V7 was skipped); the application nev
 
 ```mermaid
 flowchart LR
-    S["Scheduled poller<br/>(10 sources)"] --> R["robots.txt check<br/>(24h TTL, fail closed)"]
+    S["Scheduled poller<br/>(9 sources)"] --> R["robots.txt check<br/>(24h TTL, fail closed)"]
     R --> F["Polite fetcher<br/>(conditional GET, retries)"]
     F --> P["Rome parser + normalizer"]
     P --> I["Per-item REQUIRES_NEW ingest"]
