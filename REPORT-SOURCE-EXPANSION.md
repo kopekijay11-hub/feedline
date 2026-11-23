@@ -1,8 +1,8 @@
 # REPORT-SOURCE-EXPANSION — Source expansion sweep (REV2)
 
 - Branch: `source-expansion-rev2` (off `main` @ `a7227f8`)
-- Final configured source count: **39** (9 pre-existing + 30 added).
-- Tallies: ADDED 30, FLAGGED 1, REJECTED 14 (of 45 candidates; 44 listed + AP counted).
+- Final configured source count: **40** (9 pre-existing + 31 added).
+- Tallies: ADDED 31, FLAGGED 0, REJECTED 14 (of 45 candidates; 44 listed + AP counted).
 
 ## Gate evidence summary
 
@@ -18,7 +18,7 @@ Verification protocol v2 applied per candidate. UA used for all fetches: `Feedli
 | 4 | New York Times | https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml | allowed (404 origin) | 200 | 18 | 37 | N/A | 2026-11-23T06:44:00Z | ADDED |
 | 5 | Washington Post | https://feeds.washingtonpost.com/rss/world | allowed (404 origin) | 200 | 13 | 9 | N/A | 2026-11-22T21:00:00Z | ADDED |
 | 6 | NPR | https://feeds.npr.org/1001/rss.xml | allowed (404 origin) | 200 | 10 | 14 | N/A | 2026-11-23T09:45:21Z | ADDED |
-| 7 | DW English | https://rss.dw.com/rdf/rss-en-all | allowed | 200 | 139 | 125 | N/A | 2026-11-23T09:26:00Z | FLAGGED (>100 items) |
+| 7 | DW English | https://rss.dw.com/rdf/rss-en-all | allowed | 200 | 139 | 125 | N/A | 2026-11-23T09:26:00Z | ADDED (operator decision 2026-11-23; flag overridden) |
 | 8 | France 24 English | https://www.france24.com/en/rss | allowed | 200 | 24 | 27 | N/A | 2026-11-23T09:35:45Z | ADDED |
 | 9 | NHK World | (no current English top-news feed) | n/a | n/a | 0 | 0 | n/a | n/a | REJECTED (NO-FEED-FOUND) |
 | 10 | ABC Australia | https://www.abc.net.au/news/feed/51120/rss.xml | allowed | 200 | 25 | 82 | N | 2026-11-23T09:32:03Z | ADDED |
@@ -82,3 +82,21 @@ App booted against the compose stack (postgres + kafka). Expanded config (40 sou
 ## Known effect
 
 Robots cache TTL is 24 h (default `feed.robots.cache-ttl=1h` actually); all new sources' robots entries expire in the same window each day. Recorded, not fixed here.
+
+## DW completion pass (operator decision 2026-11-23)
+
+- DW English added to `feed.sources` using `https://rss.dw.com/rdf/rss-en-all`.
+- Final configured source count: **40**. Tallies: ADDED 31, FLAGGED 0, REJECTED 14.
+- Live proof, two consecutive 40-source polls with the final config:
+  - Cycle 1 (completed 2026-11-23T18:28:09.935Z): 40 sources processed, 149 items saved, took **29215 ms**. DW English polled and saved 139 items.
+  - Cycle 2 (completed 2026-11-23T18:29:35.510Z): 40 sources processed, 1 item saved, took **25574 ms**. DW English polled and saved 0 items (no re-ingest).
+  - Stable feeds showed zero re-ingests on cycle 2; only genuine new items (1) were saved.
+  - `/api/v1/sources/health`: status UP, sourcesStatus UP, DW English UP, no errors.
+  - Outbox stats: pendingCount=0, publishedCount=2841, poisonedCount=0.
+  - Note: the stale NZ Herald row was disabled in the live DB during this proof so the polled set stayed at the final 40 sources; it is already absent from `application.yml`.
+
+## Verify of record (DW pass)
+
+- `mvn clean verify`: **BUILD SUCCESS**.
+- Surefire: `Tests run: 174, Failures: 0, Errors: 0, Skipped: 0`.
+- SpotBugs: `Done SpotBugs Analysis....` (no violations; check goal passed).

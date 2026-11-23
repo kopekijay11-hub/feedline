@@ -210,6 +210,9 @@ feed:
     - name: France 24 English
       url: https://www.france24.com/en/rss
       enabled: true
+    - name: DW English
+      url: https://rss.dw.com/rdf/rss-en-all
+      enabled: true
     - name: ABC Australia
       url: https://www.abc.net.au/news/feed/51120/rss.xml
       enabled: true
