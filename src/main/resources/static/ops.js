@@ -306,7 +306,7 @@
             if (s.lastErrorAt) diag.push(`at=${s.lastErrorAt}`);
             const diagText = diag.length ? diag.join('\n') : '—';
             const backoff = [s.backoff ? 'active' : null, s.nextPollAt ? `next=${s.nextPollAt}` : null].filter(Boolean).join(', ');
-            return `<tr>
+            return `<tr data-source-id="${esc(s.id)}" style="cursor:pointer" title="Click to read this source">
               <td><div>${esc(s.name || ('Source ' + s.id))}</div><div class="detail mono">id=${esc(s.id)}</div></td>
               <td>${badge(s.state)}</td>
               <td>${fmtTime(s.lastSuccessAt)}<div class="detail">${s.secondsSinceLastSuccess == null ? '' : esc(s.secondsSinceLastSuccess + 's ago')}</div></td>
@@ -781,6 +781,9 @@
       state.selectedSourceIds = new Set(Array.from(ui.filterSources.selectedOptions).map(o => Number(o.value)));
       renderChips();
       updateUrlFromState();
+      state.itemsCursorStack = [];
+      state.itemsCursor = null;
+      loadItems(null, null);
     });
   }
 
@@ -819,6 +822,22 @@
   ui.poisonRefresh.addEventListener('click', () => loadPoison());
   ui.replayBatch.addEventListener('click', () => replayBatch());
   ui.cleanupPublished.addEventListener('click', () => cleanupPublished());
+
+  if (ui.sourcesBody) {
+    ui.sourcesBody.addEventListener('click', (e) => {
+      const tr = e.target && typeof e.target.closest === 'function' ? e.target.closest('tr[data-source-id]') : null;
+      if (!tr) return;
+      const id = Number(tr.getAttribute('data-source-id'));
+      if (Number.isNaN(id)) return;
+      state.selectedSourceIds = new Set([id]);
+      syncPicker();
+      renderChips();
+      updateUrlFromState();
+      state.itemsCursorStack = [];
+      state.itemsCursor = null;
+      loadItems(null, null);
+    });
+  }
 
   setDefaultWindow();
   setAutoRefresh(true);
