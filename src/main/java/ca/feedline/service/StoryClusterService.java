@@ -76,10 +76,6 @@ public class StoryClusterService {
 
     // ---------- text helpers (public static) ----------
 
-    public static Set<String> normalize(String title) {
-        return normalizeTitle(title);
-    }
-
     public static Set<String> normalizeTitle(String title) {
         Set<String> out = new HashSet<>();
         if (title == null) {
@@ -99,22 +95,6 @@ public class StoryClusterService {
         return out;
     }
 
-    public static Set<String> tokens(String title) {
-        return normalizeTitle(title);
-    }
-
-    public static Set<String> titleTokens(String title) {
-        return normalizeTitle(title);
-    }
-
-    public static Set<String> tokenize(String title) {
-        return normalizeTitle(title);
-    }
-
-    public static double jaccard(Set<String> a, Set<String> b) {
-        return jaccardSimilarity(a, b);
-    }
-
     public static double jaccardSimilarity(Set<String> a, Set<String> b) {
         Set<String> left = a == null ? Set.of() : a;
         Set<String> right = b == null ? Set.of() : b;
@@ -129,14 +109,6 @@ public class StoryClusterService {
         Set<String> inter = new HashSet<>(left);
         inter.retainAll(right);
         return ((double) inter.size()) / ((double) union.size());
-    }
-
-    public static String wireAttribution(String summary) {
-        return attribution(summary);
-    }
-
-    public static String attribution(String summary) {
-        return wireCredit(summary);
     }
 
     public static String wireCredit(String summary) {
@@ -155,27 +127,11 @@ public class StoryClusterService {
 
     @Scheduled(fixedDelayString = "${feed.cluster.pass-delay-ms:300000}")
     public void scheduledPass() {
-        runPass();
-    }
-
-    public void runPass() {
-        runClusterPass();
-    }
-
-    public void runClusterPass() {
-        clusterPass();
-    }
-
-    public void clusterPass() {
-        pass();
-    }
-
-    public void pass() {
-        doPass();
+        performPass();
     }
 
     @Transactional
-    public void doPass() {
+    private void performPass() {
         if (!isEnabled()) {
             return;
         }
@@ -315,17 +271,17 @@ public class StoryClusterService {
                         }
                     }
                     if (matchAgainst != null) {
-                        sim = jaccard(normalizeTitle(it.getTitle()), normalizeTitle(matchAgainst.getTitle()));
+                        sim = jaccardSimilarity(normalizeTitle(it.getTitle()), normalizeTitle(matchAgainst.getTitle()));
                         rule = ruleFor(it, matchAgainst, sim, titleThreshold, wireThreshold);
                     } else if (it == x && !candidateUnclustered.isEmpty()) {
                         Item y = candidateUnclustered.get(0);
-                        sim = jaccard(normalizeTitle(it.getTitle()), normalizeTitle(y.getTitle()));
+                        sim = jaccardSimilarity(normalizeTitle(it.getTitle()), normalizeTitle(y.getTitle()));
                         rule = ruleFor(it, y, sim, titleThreshold, wireThreshold);
                     } else {
                         // fallback: match with first member
                         if (!target.membersList.isEmpty()) {
                             Item y = target.membersList.get(0);
-                            sim = jaccard(normalizeTitle(it.getTitle()), normalizeTitle(y.getTitle()));
+                            sim = jaccardSimilarity(normalizeTitle(it.getTitle()), normalizeTitle(y.getTitle()));
                             rule = ruleFor(it, y, sim, titleThreshold, wireThreshold);
                         }
                     }
@@ -395,12 +351,12 @@ public class StoryClusterService {
         if (Duration.between(a.getFetchedAt(), b.getFetchedAt()).abs().compareTo(Duration.ofHours(windowHours)) > 0) {
             return false;
         }
-        double sim = jaccard(normalizeTitle(a.getTitle()), normalizeTitle(b.getTitle()));
+        double sim = jaccardSimilarity(normalizeTitle(a.getTitle()), normalizeTitle(b.getTitle()));
         if (sim >= titleThreshold) {
             return true;
         }
-        String attrA = wireAttribution(a.getSummary());
-        String attrB = wireAttribution(b.getSummary());
+        String attrA = wireCredit(a.getSummary());
+        String attrB = wireCredit(b.getSummary());
         if (attrA != null && attrA.equals(attrB) && sim >= wireThreshold) {
             return true;
         }
@@ -411,8 +367,8 @@ public class StoryClusterService {
         if (sim >= titleThreshold) {
             return "R1";
         }
-        String attrA = wireAttribution(a.getSummary());
-        String attrB = wireAttribution(b.getSummary());
+        String attrA = wireCredit(a.getSummary());
+        String attrB = wireCredit(b.getSummary());
         if (attrA != null && attrA.equals(attrB) && sim >= wireThreshold) {
             return "R2";
         }
@@ -454,9 +410,9 @@ public class StoryClusterService {
                 if (other.getId().equals(it.getId())) {
                     continue;
                 }
-                double s = jaccard(normalizeTitle(it.getTitle()), normalizeTitle(other.getTitle()));
-                if (s >= titleThreshold || (wireAttribution(it.getSummary()) != null
-                        && wireAttribution(it.getSummary()).equals(wireAttribution(other.getSummary()))
+                double s = jaccardSimilarity(normalizeTitle(it.getTitle()), normalizeTitle(other.getTitle()));
+                if (s >= titleThreshold || (wireCredit(it.getSummary()) != null
+                        && wireCredit(it.getSummary()).equals(wireCredit(other.getSummary()))
                         && s >= wireThreshold)) {
                     sim = s;
                     rule = (s >= titleThreshold) ? "R1" : "R2";

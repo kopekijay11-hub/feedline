@@ -96,7 +96,7 @@ class StoryClusterSeamTest {
     }
 
     private void pass() {
-        service.doPass();
+        service.scheduledPass();
     }
 
     @Test

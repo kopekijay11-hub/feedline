@@ -109,3 +109,34 @@ Cleanup: port 8081 stopped; `feedline_cluster_probe` dropped. No other deletions
 ## Push proof
 
 Branch `story-clustering` pushed to origin fast-forward only (no force, no rebase, no dropped commits). No merge performed (HOLD).
+
+## CLEANUP (names only; behavior frozen)
+
+Removed (deleted files / methods):
+- Deleted delegate classes entirely:
+  - `src/main/java/ca/feedline/service/TitleNormalizer.java`
+  - `src/main/java/ca/feedline/service/TitleTokenizer.java`
+  - `src/main/java/ca/feedline/service/StoryClusterMatcher.java`
+  - `src/main/java/ca/feedline/service/StoryClustering.java`
+  Their callers (tests included) now use `StoryClusterService`'s canonical names directly.
+- Deleted alias methods on `StoryClusterService`:
+  - `normalize`, `tokens`, `titleTokens`, `tokenize` → canonical `normalizeTitle`
+  - `jaccard` → canonical `jaccardSimilarity`
+  - `wireAttribution`, `attribution` → canonical `wireCredit`
+- Deleted redundant public pass entry points `runPass`, `runClusterPass`, `clusterPass`, `pass`, `doPass`. The `@Scheduled` entry point `scheduledPass()` now calls one private worker `performPass()` directly.
+
+Canonical names kept on `StoryClusterService`:
+- Pass entry point: `scheduledPass()` (@Scheduled) → private `performPass()`.
+- Statics: `normalizeTitle(String)`, `jaccardSimilarity(Set, Set)`, `wireCredit(String)`.
+
+Test impact:
+- `StoryClusterMatchingTest`: all cases retained, calls updated to canonical names (`normalizeTitle`, `jaccardSimilarity`, `wireCredit`). Test names renamed to match canonical names.
+- `aliasClassesDelegate` test in `StoryClusterMatchingTest` was REMOVED: it existed only to exercise the deleted alias/delegate classes, so it cannot compile after their deletion. Per the cleanup directive this is noted here rather than quietly keeping the count. Suite count therefore dropped from 205 to 204; no coverage case lost (the alias test covered no clustering behavior).
+- `StoryClusterSeamTest`: `service.doPass()` → `service.scheduledPass()`; coverage list unchanged.
+
+Verify of record:
+- `mvn clean verify`: BUILD SUCCESS, clean working tree at new branch tip.
+- Surefire: `Tests run: 204, Failures: 0, Errors: 0, Skipped: 0`
+- SpotBugs: `BugInstance size is 0`, `Error size is 0`, `No errors/warnings found`
+
+Push proof: fast-forward only to `origin/story-clustering`. HOLD — the merge walk follows grading of this pass.
