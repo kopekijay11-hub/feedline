@@ -189,6 +189,99 @@ feed:
     - name: CNBC Top News
       url: https://www.cnbc.com/id/100003114/device/rss/rss.html
       enabled: true
+    - name: AP via Flipboard
+      url: https://flipboard.com/@AssociatedPress.rss
+      enabled: true
+    - name: Al Jazeera English
+      url: https://www.aljazeera.com/xml/rss/all.xml
+      enabled: true
+    - name: The Guardian
+      url: https://www.theguardian.com/world/rss
+      enabled: true
+    - name: New York Times
+      url: https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml
+      enabled: true
+    - name: Washington Post
+      url: https://feeds.washingtonpost.com/rss/world
+      enabled: true
+    - name: NPR
+      url: https://feeds.npr.org/1001/rss.xml
+      enabled: true
+    - name: France 24 English
+      url: https://www.france24.com/en/rss
+      enabled: true
+    - name: DW English
+      url: https://rss.dw.com/rdf/rss-en-all
+      enabled: true
+    - name: ABC Australia
+      url: https://www.abc.net.au/news/feed/51120/rss.xml
+      enabled: true
+    - name: Euronews
+      url: https://www.euronews.com/rss?format=xml
+      enabled: true
+    - name: Sky News
+      url: https://feeds.skynews.com/feeds/rss/home.xml
+      enabled: true
+    - name: The Globe and Mail
+      url: https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/canada/
+      enabled: true
+    - name: CTV News
+      url: https://www.ctvnews.ca/arc/outboundfeeds/rss/?outputType=xml
+      enabled: true
+    - name: Global News
+      url: https://globalnews.ca/feed/
+      enabled: true
+    - name: Radio-Canada
+      url: https://ici.radio-canada.ca/info/rss/info
+      enabled: true
+    - name: Le Monde English
+      url: https://www.lemonde.fr/en/rss/une.xml
+      enabled: true
+    - name: Der Spiegel English
+      url: https://www.spiegel.de/international/index.rss
+      enabled: true
+    - name: Tagesschau
+      url: https://www.tagesschau.de/xml/rss2
+      enabled: true
+    - name: ANSA
+      url: https://www.ansa.it/sito/ansait_rss.xml
+      enabled: true
+    - name: The Hindu
+      url: https://www.thehindu.com/news/feeder/default.rss
+      enabled: true
+    - name: Times of India
+      url: https://timesofindia.indiatimes.com/rssfeedstopstories.cms
+      enabled: true
+    - name: South China Morning Post
+      url: https://www.scmp.com/rss/feed
+      enabled: true
+    - name: The Straits Times
+      url: https://www.straitstimes.com/news/world/rss.xml
+      enabled: true
+    - name: Yonhap
+      url: https://en.yna.co.kr/RSS/news.xml
+      enabled: true
+    - name: Anadolu Agency
+      url: https://www.aa.com.tr/en/rss/default?cat=live
+      enabled: true
+    - name: Africanews
+      url: https://www.africanews.com/feed/
+      enabled: true
+    - name: RTÉ News
+      url: https://www.rte.ie/news/rss/news-headlines.xml
+      enabled: true
+    - name: Sydney Morning Herald
+      url: https://www.smh.com.au/rss/feed.xml
+      enabled: true
+    - name: Los Angeles Times
+      url: https://www.latimes.com/rss2.0.xml
+      enabled: true
+    - name: The Independent
+      url: https://www.independent.co.uk/rss
+      enabled: true
+    - name: Amazon News
+      url: https://www.aboutamazon.com/rss/feed.rss
+      enabled: true
 
 logging:
   level:
