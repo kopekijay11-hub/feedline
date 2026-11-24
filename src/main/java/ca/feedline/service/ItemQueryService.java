@@ -16,7 +16,10 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 @Transactional(readOnly = true)
@@ -178,9 +181,11 @@ public class ItemQueryService {
                     (String) r[5],
                     toInstant(r[6]),
                     toInstant(r[7]),
-                    r[8] == null ? null : ((Number) r[8]).longValue()
+                    r[8] == null ? null : ((Number) r[8]).longValue(),
+                    null
             ));
         }
+        items = attachClusterSizes(items);
         String nextCursor = null;
         if (hasMore && !items.isEmpty()) {
             ItemDto last = items.get(items.size() - 1);
@@ -189,15 +194,45 @@ public class ItemQueryService {
         return new ItemsPage(items, nextCursor, total, hasMore);
     }
 
+    // clusterSize is the member count of the item's cluster, from the same
+    // story_cluster_members rows the clusterId join uses. Null when unclustered.
+    private List<ItemDto> attachClusterSizes(List<ItemDto> page) {
+        List<Long> clusterIds = page.stream()
+                .map(ItemDto::clusterId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, Integer> sizes = new HashMap<>();
+        if (!clusterIds.isEmpty()) {
+            for (Object[] row : clusterMemberRepository.clusterSizesByIds(clusterIds)) {
+                sizes.put(((Number) row[0]).longValue(), ((Number) row[1]).intValue());
+            }
+        }
+        List<ItemDto> sized = new ArrayList<>(page.size());
+        for (ItemDto it : page) {
+            Integer size = null;
+            if (it.clusterId() != null) {
+                size = sizes.getOrDefault(it.clusterId(), 0);
+            }
+            sized.add(new ItemDto(it.id(), it.sourceId(), it.guid(), it.link(), it.title(), it.summary(),
+                    it.publishedAt(), it.fetchedAt(), it.clusterId(), size));
+        }
+        return sized;
+    }
+
     public ItemDto findById(Long id) {
         Item item = entityManager.find(Item.class, id);
         if (item == null) {
             return null;
         }
         Long clusterId = null;
+        Integer clusterSize = null;
         if (clusterMemberRepository != null) {
             clusterId = clusterMemberRepository.findByItemId(item.getId())
                     .map(StoryClusterMember::getClusterId).orElse(null);
+            if (clusterId != null) {
+                clusterSize = clusterMemberRepository.countByClusterId(clusterId);
+            }
         }
         return new ItemDto(
                 item.getId(),
@@ -208,7 +243,8 @@ public class ItemQueryService {
                 item.getSummary(),
                 item.getPublishedAt(),
                 item.getFetchedAt(),
-                clusterId
+                clusterId,
+                clusterSize
         );
     }
 

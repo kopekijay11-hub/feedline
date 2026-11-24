@@ -16,6 +16,11 @@ public interface StoryClusterMemberRepository extends JpaRepository<StoryCluster
 
     List<StoryClusterMember> findByClusterId(Long clusterId);
 
+    Integer countByClusterId(Long clusterId);
+
+    @Query("SELECT m.clusterId, COUNT(m) FROM StoryClusterMember m WHERE m.clusterId IN :ids GROUP BY m.clusterId")
+    List<Object[]> clusterSizesByIds(@Param("ids") List<Long> ids);
+
     @Modifying
     @Transactional
     @Query("DELETE FROM StoryClusterMember m WHERE m.clusterId = :clusterId")

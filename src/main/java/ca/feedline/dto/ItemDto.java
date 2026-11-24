@@ -11,6 +11,7 @@ public record ItemDto(
         String summary,
         Instant publishedAt,
         Instant fetchedAt,
-        Long clusterId
+        Long clusterId,
+        Integer clusterSize
 ) {
 }
