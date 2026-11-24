@@ -142,4 +142,41 @@
     <Method name="fetchRules"/>
     <Bug pattern="REC_CATCH_EXCEPTION"/>
   </Match>
+
+  <!-- DTOs are Spring-managed view objects; defensive copies unnecessary. -->
+  <Match>
+    <Class name="ca.feedline.dto.ClusterDetailDto"/>
+    <Or>
+      <Bug pattern="EI_EXPOSE_REP"/>
+      <Bug pattern="EI_EXPOSE_REP2"/>
+    </Or>
+  </Match>
+  <Match>
+    <Class name="ca.feedline.dto.ClusterSummaryDto"/>
+    <Or>
+      <Bug pattern="EI_EXPOSE_REP"/>
+      <Bug pattern="EI_EXPOSE_REP2"/>
+    </Or>
+  </Match>
+
+  <!-- EI_EXPOSE_REP2: optional injected collaborator setter. -->
+  <Match>
+    <Class name="ca.feedline.service.ItemQueryService"/>
+    <Method name="setStoryClusterMemberRepository"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+
+  <!-- EI_EXPOSE_REP2: constructor-held Spring collaborators are injected dependencies. -->
+  <Match>
+    <Class name="ca.feedline.service.StoryClusterService"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+
+  <!-- EI_EXPOSE_REP2: constructor-held Spring collaborator. -->
+  <Match>
+    <Class name="ca.feedline.web.ItemsController"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
 </FindBugsFilter>

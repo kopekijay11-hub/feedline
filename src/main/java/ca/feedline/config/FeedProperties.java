@@ -95,6 +95,8 @@ public class FeedProperties {
 
     private Items items = new Items();
 
+    private Cluster cluster = new Cluster();
+
     public List<Source> getSources() {
         return sources;
     }
@@ -595,6 +597,65 @@ public class FeedProperties {
                 return;
             }
             this.searchLanguage = searchLanguage.trim();
+        }
+    }
+
+    public Cluster getCluster() {
+        return cluster == null ? new Cluster() : cluster;
+    }
+
+    public void setCluster(Cluster cluster) {
+        this.cluster = cluster == null ? new Cluster() : cluster;
+    }
+
+    /**
+     * Story clustering configuration.
+     */
+    public static class Cluster {
+        private boolean enabled = true;
+        private int windowHours = 48;
+        private double titleThreshold = 0.60;
+        private double wireThreshold = 0.40;
+        private long passDelayMs = 300000;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getWindowHours() {
+            return windowHours <= 0 ? 48 : windowHours;
+        }
+
+        public void setWindowHours(int windowHours) {
+            this.windowHours = windowHours <= 0 ? 48 : windowHours;
+        }
+
+        public double getTitleThreshold() {
+            return titleThreshold;
+        }
+
+        public void setTitleThreshold(double titleThreshold) {
+            this.titleThreshold = titleThreshold;
+        }
+
+        public double getWireThreshold() {
+            return wireThreshold;
+        }
+
+        public void setWireThreshold(double wireThreshold) {
+            this.wireThreshold = wireThreshold;
+        }
+
+        public long getPassDelayMs() {
+            return passDelayMs <= 0 ? 300000 : passDelayMs;
+        }
+
+        public void setPassDelayMs(long passDelayMs) {
+            this.passDelayMs = passDelayMs <= 0 ? 300000 : passDelayMs;
         }
     }
 

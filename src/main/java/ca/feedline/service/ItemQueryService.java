@@ -3,6 +3,8 @@ package ca.feedline.service;
 import ca.feedline.config.FeedProperties;
 import ca.feedline.domain.Item;
 import ca.feedline.dto.ItemDto;
+import ca.feedline.repository.StoryClusterMemberRepository;
+import ca.feedline.domain.StoryClusterMember;
 import ca.feedline.dto.ItemsPage;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -22,19 +24,30 @@ public class ItemQueryService {
 
     private final EntityManager entityManager;
     private final FeedProperties.Items itemsConfig;
+    private StoryClusterMemberRepository clusterMemberRepository;
 
     ItemQueryService(EntityManager entityManager) {
-        this(entityManager, new FeedProperties().getItems());
+        this(entityManager, new FeedProperties().getItems(), null);
     }
 
     @Autowired
     public ItemQueryService(EntityManager entityManager, FeedProperties feedProperties) {
-        this(entityManager, feedProperties == null ? new FeedProperties().getItems() : feedProperties.getItems());
+        this(entityManager, feedProperties == null ? new FeedProperties().getItems() : feedProperties.getItems(), null);
+    }
+
+    @Autowired
+    public void setStoryClusterMemberRepository(StoryClusterMemberRepository clusterMemberRepository) {
+        this.clusterMemberRepository = clusterMemberRepository;
     }
 
     ItemQueryService(EntityManager entityManager, FeedProperties.Items itemsConfig) {
+        this(entityManager, itemsConfig, null);
+    }
+
+    ItemQueryService(EntityManager entityManager, FeedProperties.Items itemsConfig, StoryClusterMemberRepository clusterMemberRepository) {
         this.entityManager = entityManager;
         this.itemsConfig = itemsConfig == null ? new FeedProperties().getItems() : itemsConfig;
+        this.clusterMemberRepository = clusterMemberRepository;
     }
 
     public ItemsPage list(Long source, String q, Instant from, Instant to, Instant fetchedFrom,
@@ -130,12 +143,16 @@ public class ItemQueryService {
 
         // page query
         StringBuilder pageSql = new StringBuilder(
-                "SELECT id, source_id, guid, link, title, summary, published_at, fetched_at FROM items "
-                        + where);
+                "SELECT i.id, i.source_id, i.guid, i.link, i.title, i.summary, i.published_at, i.fetched_at, scm.cluster_id "
+                        + "FROM items i LEFT JOIN story_cluster_members scm ON scm.item_id = i.id "
+                        + where.toString().replace("source_id", "i.source_id")
+                              .replace("search_vector", "i.search_vector")
+                              .replace("published_at", "i.published_at")
+                              .replace("fetched_at", "i.fetched_at"));
         if (c != null) {
-            pageSql.append(" AND (fetched_at < :cf OR (fetched_at = :cf AND id < :ci))");
+            pageSql.append(" AND (i.fetched_at < :cf OR (i.fetched_at = :cf AND i.id < :ci))");
         }
-        pageSql.append(" ORDER BY fetched_at DESC, id DESC LIMIT :limit");
+        pageSql.append(" ORDER BY i.fetched_at DESC, i.id DESC LIMIT :limit");
         Query pageQuery = entityManager.createNativeQuery(pageSql.toString());
         bindParams(pageQuery, effective, q, from, to, fetchedFrom, fetchedTo, c);
         if (c != null) {
@@ -160,7 +177,8 @@ public class ItemQueryService {
                     (String) r[4],
                     (String) r[5],
                     toInstant(r[6]),
-                    toInstant(r[7])
+                    toInstant(r[7]),
+                    r[8] == null ? null : ((Number) r[8]).longValue()
             ));
         }
         String nextCursor = null;
@@ -176,6 +194,11 @@ public class ItemQueryService {
         if (item == null) {
             return null;
         }
+        Long clusterId = null;
+        if (clusterMemberRepository != null) {
+            clusterId = clusterMemberRepository.findByItemId(item.getId())
+                    .map(StoryClusterMember::getClusterId).orElse(null);
+        }
         return new ItemDto(
                 item.getId(),
                 item.getSource().getId(),
@@ -184,7 +207,8 @@ public class ItemQueryService {
                 item.getTitle(),
                 item.getSummary(),
                 item.getPublishedAt(),
-                item.getFetchedAt()
+                item.getFetchedAt(),
+                clusterId
         );
     }
 

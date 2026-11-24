@@ -10,6 +10,7 @@ public record ItemDto(
         String title,
         String summary,
         Instant publishedAt,
-        Instant fetchedAt
+        Instant fetchedAt,
+        Long clusterId
 ) {
 }
