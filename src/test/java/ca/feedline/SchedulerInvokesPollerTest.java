@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.anyString;
         "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration",
         "feed.poll-delay=200",
         "feed.outbox.enabled=false",
+        "feed.cluster.enabled=false",
         "management.endpoint.health.group.readiness.include=readinessState"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

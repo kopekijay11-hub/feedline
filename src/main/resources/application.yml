@@ -153,6 +153,13 @@ feed:
     link-max-length: 1024
     guid-max-length: 512
 
+  cluster:
+    enabled: true
+    window-hours: 48
+    title-threshold: 0.60
+    wire-threshold: 0.40
+    pass-delay-ms: 300000
+
   items:
     # Items query defaults. default-page-size is clamped to 1..max-page-size;
     # max-page-size is clamped to >=1; search-language falls back to "english".
