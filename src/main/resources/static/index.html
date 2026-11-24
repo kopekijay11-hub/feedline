@@ -123,9 +123,13 @@
           </div>
         </div>
         <form id="items-form" class="filters">
-          <label class="field">
-            <span>Source ID</span>
-            <input id="filter-source" name="source" inputmode="numeric" placeholder="e.g. 1">
+          <div class="field field-wide">
+            <span>Categories</span>
+            <div id="category-chips" class="chips" role="group" aria-label="News categories"></div>
+          </div>
+          <label class="field field-wide">
+            <span>Sources</span>
+            <select id="filter-sources" name="sources" multiple size="8" class="source-picker"></select>
           </label>
           <label class="field">
             <span>Search (q)</span>

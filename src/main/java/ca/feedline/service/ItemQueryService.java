@@ -39,18 +39,70 @@ public class ItemQueryService {
 
     public ItemsPage list(Long source, String q, Instant from, Instant to, Instant fetchedFrom,
                           Instant fetchedTo, String cursor, int requestedSize) {
+        return list(source, (java.util.List<Long>) null, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize);
+    }
+
+    public ItemsPage list(Long source, java.util.List<Long> sources, String q, Instant from, Instant to,
+                          Instant fetchedFrom, Instant fetchedTo, String cursor, int requestedSize) {
+        return listInternal(source, sources, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize);
+    }
+
+    public ItemsPage list(Long source, String sources, String q, Instant from, Instant to, Instant fetchedFrom,
+                          Instant fetchedTo, String cursor, int requestedSize) {
+        java.util.List<Long> parsed = null;
+        if (sources != null && !sources.isBlank()) {
+            parsed = new java.util.ArrayList<>();
+            for (String part : sources.split(",")) {
+                String t = part.trim();
+                if (t.isEmpty()) {
+                    continue;
+                }
+                try {
+                    parsed.add(Long.valueOf(t));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("invalid source id: " + t);
+                }
+            }
+            if (parsed.isEmpty()) {
+                parsed = null;
+            }
+        }
+        return list(source, parsed, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize);
+    }
+
+    private ItemsPage listInternal(Long source, java.util.List<Long> sources, String q, Instant from, Instant to,
+                                   Instant fetchedFrom, Instant fetchedTo, String cursor, int requestedSize) {
         if (from != null && to != null && from.isAfter(to)) {
             throw new IllegalArgumentException("from must not be after to");
         }
         if (fetchedFrom != null && fetchedTo != null && fetchedFrom.isAfter(fetchedTo)) {
             throw new IllegalArgumentException("fetchedFrom must not be after fetchedTo");
         }
+        java.util.List<Long> effective = new java.util.ArrayList<>();
+        boolean hasSource = source != null;
+        boolean hasSources = sources != null && !sources.isEmpty();
+        if (hasSource && hasSources) {
+            throw new IllegalArgumentException("source and sources are mutually exclusive");
+        }
+        if (hasSource) {
+            effective.add(source);
+        }
+        if (hasSources) {
+            for (Long s : sources) {
+                if (s != null) {
+                    effective.add(s);
+                }
+            }
+        }
+        if (effective.size() > 50) {
+            throw new IllegalArgumentException("too many source ids (max 50)");
+        }
         int size = requestedSize <= 0 ? itemsConfig.getDefaultPageSize() : Math.min(requestedSize, itemsConfig.getMaxPageSize());
         Cursor c = decodeCursor(cursor);
 
         StringBuilder where = new StringBuilder("WHERE 1=1");
-        if (source != null) {
-            where.append(" AND source_id = :source");
+        if (!effective.isEmpty()) {
+            where.append(" AND source_id IN (:sources)");
         }
         if (q != null && !q.isBlank()) {
             where.append(" AND search_vector @@ plainto_tsquery(CAST(:searchLanguage AS regconfig), :q)");
@@ -73,7 +125,7 @@ public class ItemQueryService {
         // total count (filters only, no cursor)
         String countSql = "SELECT COUNT(*) FROM items " + where;
         Query countQuery = entityManager.createNativeQuery(countSql);
-        bindParams(countQuery, source, q, from, to, fetchedFrom, fetchedTo, null);
+        bindParams(countQuery, effective, q, from, to, fetchedFrom, fetchedTo, null);
         long total = ((Number) countQuery.getSingleResult()).longValue();
 
         // page query
@@ -85,7 +137,7 @@ public class ItemQueryService {
         }
         pageSql.append(" ORDER BY fetched_at DESC, id DESC LIMIT :limit");
         Query pageQuery = entityManager.createNativeQuery(pageSql.toString());
-        bindParams(pageQuery, source, q, from, to, fetchedFrom, fetchedTo, c);
+        bindParams(pageQuery, effective, q, from, to, fetchedFrom, fetchedTo, c);
         if (c != null) {
             pageQuery.setParameter("cf", c.fetchedAt());
             pageQuery.setParameter("ci", c.id());
@@ -136,10 +188,10 @@ public class ItemQueryService {
         );
     }
 
-    private void bindParams(Query q, Long source, String text, Instant from, Instant to,
+    private void bindParams(Query q, java.util.List<Long> sources, String text, Instant from, Instant to,
                             Instant fetchedFrom, Instant fetchedTo, Cursor cursor) {
-        if (source != null) {
-            q.setParameter("source", source);
+        if (sources != null && !sources.isEmpty()) {
+            q.setParameter("sources", sources);
         }
         if (text != null && !text.isBlank()) {
             q.setParameter("q", text);

@@ -1,6 +1,8 @@
 (() => {
   'use strict';
 
+  const CATEGORY_ORDER = ['All', 'World', 'Business & Markets', 'Canada', 'United States', 'Europe', 'Asia-Pacific', 'Technology', 'Official Releases', 'Company News', 'Other'];
+
   const state = {
     adminKey: '',
     autoRefresh: true,
@@ -12,6 +14,8 @@
     actuatorOk: null,
     lastSources: null,
     lastSourcesAggregate: null,
+    categories: {},
+    selectedSourceIds: new Set(),
     panel: {
       health: { lastUpdated: null, hasData: false },
       sources: { lastUpdated: null, hasData: false },
@@ -52,6 +56,8 @@
     itemsNext: el('items-next'),
     itemsReset: el('items-reset'),
     filterSource: el('filter-source'),
+    categoryChips: el('category-chips'),
+    filterSources: el('filter-sources'),
     filterQ: el('filter-q'),
     filterFrom: el('filter-from'),
     filterTo: el('filter-to'),
@@ -315,6 +321,8 @@
       const needing = sources.filter(s => s.state !== 'UP' && s.state !== 'DISABLED').length;
       const active = sources.filter(s => s.state !== 'DISABLED').length;
       ui.sourcesSummary.textContent = `${sources.length} sources — ${sources.length - needing} healthy — ${needing} need attention`;
+      renderSourcePicker();
+      renderChips();
       clearError(ui.sourcesError);
       const now = new Date();
       state.panel.sources.lastUpdated = now;
@@ -409,14 +417,139 @@
     ui.overallStatus.classList.add('state-' + cls);
   }
 
+  function categoryOf(name) {
+    return (state.categories && Object.prototype.hasOwnProperty.call(state.categories, name))
+      ? state.categories[name] : 'Other';
+  }
+
+  function sourcesInCategory(cat) {
+    const list = state.lastSources || [];
+    return list.filter(s => categoryOf(s.name) === cat);
+  }
+
+  function categoryList() {
+    const present = new Set((state.lastSources || []).map(s => categoryOf(s.name)));
+    const cats = CATEGORY_ORDER.filter(c => c !== 'All' && present.has(c));
+    if (present.has('Other') && cats.indexOf('Other') === -1) cats.push('Other');
+    return cats;
+  }
+
+  function isCategorySelected(cat) {
+    if (cat === 'All') return state.selectedSourceIds.size === 0;
+    const ids = sourcesInCategory(cat).map(s => Number(s.id));
+    return ids.length > 0 && ids.every(id => state.selectedSourceIds.has(id)) && state.selectedSourceIds.size === ids.length;
+  }
+
+  function renderChips() {
+    if (!ui.categoryChips) return;
+    ui.categoryChips.innerHTML = '';
+    const allChip = document.createElement('button');
+    allChip.type = 'button';
+    allChip.className = 'chip' + (state.selectedSourceIds.size === 0 ? ' active' : '');
+    allChip.textContent = 'All';
+    allChip.dataset.category = 'All';
+    allChip.addEventListener('click', () => selectCategory('All'));
+    ui.categoryChips.appendChild(allChip);
+    for (const cat of categoryList()) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip' + (isCategorySelected(cat) ? ' active' : '');
+      chip.textContent = cat;
+      chip.dataset.category = cat;
+      chip.addEventListener('click', () => selectCategory(cat));
+      ui.categoryChips.appendChild(chip);
+    }
+  }
+
+  function syncPicker() {
+    if (!ui.filterSources) return;
+    Array.from(ui.filterSources.options).forEach(opt => {
+      opt.selected = state.selectedSourceIds.has(Number(opt.value));
+    });
+  }
+
+  function renderSourcePicker() {
+    if (!ui.filterSources) return;
+    ui.filterSources.innerHTML = '';
+    for (const cat of categoryList()) {
+      const srcs = sourcesInCategory(cat);
+      if (!srcs.length) continue;
+      const og = document.createElement('optgroup');
+      og.label = cat;
+      for (const s of srcs) {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name;
+        opt.selected = state.selectedSourceIds.has(Number(s.id));
+        og.appendChild(opt);
+      }
+      ui.filterSources.appendChild(og);
+    }
+  }
+
+  function selectCategory(cat) {
+    if (cat === 'All') {
+      state.selectedSourceIds.clear();
+    } else {
+      state.selectedSourceIds = new Set(sourcesInCategory(cat).map(s => Number(s.id)));
+    }
+    syncPicker();
+    renderChips();
+    updateUrlFromState();
+    state.itemsCursorStack = [];
+    state.itemsCursor = null;
+    loadItems(null, null);
+  }
+
+  function updateUrlFromState() {
+    const params = new URLSearchParams(window.location.search);
+    if (state.selectedSourceIds.size) params.set('sources', [...state.selectedSourceIds].join(','));
+    else params.delete('sources');
+    params.delete('source');
+    const q = ui.filterQ.value.trim();
+    if (q) params.set('q', q); else params.delete('q');
+    const from = ui.filterFrom.value.trim();
+    if (from) params.set('fetchedFrom', from); else params.delete('fetchedFrom');
+    const to = ui.filterTo.value.trim();
+    if (to) params.set('fetchedTo', to); else params.delete('fetchedTo');
+    const size = ui.filterSize.value.trim();
+    if (size) params.set('size', size); else params.delete('size');
+    const newUrl = params.toString() ? ('?' + params.toString()) : window.location.pathname;
+    history.replaceState(null, '', newUrl);
+  }
+
+  function restoreFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('q')) ui.filterQ.value = params.get('q');
+    if (params.has('fetchedFrom')) ui.filterFrom.value = params.get('fetchedFrom');
+    if (params.has('fetchedTo')) ui.filterTo.value = params.get('fetchedTo');
+    if (params.has('size')) ui.filterSize.value = params.get('size');
+    let ids = [];
+    if (params.has('sources')) {
+      ids = params.get('sources').split(',').map(x => Number(x.trim())).filter(n => !Number.isNaN(n));
+    } else if (params.has('source')) {
+      const n = Number(params.get('source'));
+      if (!Number.isNaN(n)) ids = [n];
+    }
+    state.selectedSourceIds = new Set(ids);
+    syncPicker();
+    renderChips();
+  }
+
+  function loadCategories() {
+    return fetch('/categories.json', { cache: 'no-store' })
+      .then(res => res.json())
+      .then(data => { state.categories = data || {}; })
+      .catch(() => { state.categories = {}; });
+  }
+
   function buildItemsQuery(cursor) {
     const params = new URLSearchParams();
-    const source = ui.filterSource.value.trim();
     const q = ui.filterQ.value.trim();
     const from = ui.filterFrom.value.trim();
     const to = ui.filterTo.value.trim();
     const size = ui.filterSize.value.trim();
-    if (source) params.set('source', source);
+    if (state.selectedSourceIds.size) params.set('sources', [...state.selectedSourceIds].join(','));
     if (q) params.set('q', q);
     if (from) params.set('fetchedFrom', from);
     if (to) params.set('fetchedTo', to);
@@ -643,19 +776,31 @@
     if (state.adminKey) loadPoison(false).catch(() => {});
   });
 
+  if (ui.filterSources) {
+    ui.filterSources.addEventListener('change', () => {
+      state.selectedSourceIds = new Set(Array.from(ui.filterSources.selectedOptions).map(o => Number(o.value)));
+      renderChips();
+      updateUrlFromState();
+    });
+  }
+
   ui.itemsForm.addEventListener('submit', (e) => {
     e.preventDefault();
     state.itemsCursorStack = [];
     state.itemsCursor = null;
+    updateUrlFromState();
     loadItems(null, null);
   });
 
   ui.itemsReset.addEventListener('click', () => {
-    ui.filterSource.value = '';
+    state.selectedSourceIds.clear();
     ui.filterQ.value = '';
     setDefaultWindow();
     state.itemsCursorStack = [];
     state.itemsCursor = null;
+    syncPicker();
+    renderChips();
+    updateUrlFromState();
     loadItems(null, null);
   });
 
@@ -677,7 +822,13 @@
 
   setDefaultWindow();
   setAutoRefresh(true);
-  loadHealth().catch(() => {});
-  loadItems(null, null).catch(() => {});
-  updateOverallStatus();
+  (async () => {
+    await loadCategories();
+    await loadHealth();
+    restoreFromUrl();
+    renderSourcePicker();
+    renderChips();
+    updateOverallStatus();
+    loadItems(null, null).catch(() => {});
+  })();
 })();
