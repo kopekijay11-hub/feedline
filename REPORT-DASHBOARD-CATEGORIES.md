@@ -34,3 +34,22 @@ BugInstance size is 0
 No errors/warnings found
 ```
 BUILD SUCCESS.
+
+## Test completion pass
+
+Added `ItemsApiMultiSourceTest` (10 tests) covering union/total, paging, q+date range, legacy source, 400 cases, empty/unknown sources, strict binding.
+
+### Verify of record (completion pass)
+Command: `mvn clean verify` on clean tree at branch tip.
+
+Surefire verdict line:
+```
+Tests run: 185, Failures: 0, Errors: 0, Skipped: 0
+```
+
+SpotBugs verdict lines:
+```
+BugInstance size is 0
+No errors/warnings found
+```
+BUILD SUCCESS.
