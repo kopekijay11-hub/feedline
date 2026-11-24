@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/items")
@@ -49,6 +51,7 @@ public class ItemsController {
             content = @Content(mediaType = "application/problem+json"))
     public ResponseEntity<Object> list(
             @Parameter(description = "Filter by source id") @RequestParam(name = "source", required = false) Long source,
+            @Parameter(description = "Filter by comma-separated source ids") @RequestParam(name = "sources", required = false) String sources,
             @Parameter(description = "Full-text search over title and summary") @RequestParam(name = "q", required = false) String q,
             @Parameter(description = "Published-at lower bound (inclusive). Items with null published_at are excluded when set.")
             @RequestParam(name = "from", required = false) Instant from,
@@ -68,8 +71,32 @@ public class ItemsController {
         if (pageSize > itemsConfig.getMaxPageSize()) {
             pageSize = itemsConfig.getMaxPageSize();
         }
+        List<Long> parsedSources = null;
+        if (sources != null && !sources.isBlank()) {
+            if (source != null) {
+                throw new IllegalArgumentException("source and sources are mutually exclusive");
+            }
+            parsedSources = new ArrayList<>();
+            for (String part : sources.split(",")) {
+                String t = part.trim();
+                if (t.isEmpty()) {
+                    continue;
+                }
+                try {
+                    parsedSources.add(Long.valueOf(t));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("invalid source id: " + t);
+                }
+            }
+            if (parsedSources.isEmpty()) {
+                parsedSources = null;
+            }
+            if (parsedSources != null && parsedSources.size() > 50) {
+                throw new IllegalArgumentException("too many source ids (max 50)");
+            }
+        }
         try {
-            ItemsPage page = queryService.list(source, q, from, to, fetchedFrom, fetchedTo, cursor, pageSize);
+            ItemsPage page = queryService.list(source, parsedSources, q, from, to, fetchedFrom, fetchedTo, cursor, pageSize);
             return ResponseEntity.ok(page);
         } catch (IllegalArgumentException ex) {
             ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
