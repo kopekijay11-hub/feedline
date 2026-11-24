@@ -110,6 +110,37 @@
         <div id="sources-error" class="inline-error hidden" role="alert"></div>
       </section>
 
+      <section class="panel panel-wide" aria-labelledby="clusters-title" data-panel="clusters">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Story Clustering</p>
+            <h2 id="clusters-title">Top stories — same story, many sources</h2>
+            <p class="panel-help">Clusters group items from different sources that look like the same story. Click a row to expand its members.</p>
+          </div>
+          <div class="panel-meta">
+            <span id="clusters-state" class="panel-state state-empty" role="status">Empty</span>
+            <span id="clusters-summary" class="muted">GET /api/v1/clusters?sinceHours=48</span>
+          </div>
+        </div>
+        <div id="clusters-error" class="inline-error hidden" role="alert"></div>
+        <div class="table-wrap" tabindex="0">
+          <table>
+            <thead>
+              <tr>
+                <th>Story</th>
+                <th>Reports</th>
+                <th>Sources</th>
+                <th>Last seen</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="clusters-body">
+              <tr><td colspan="5" class="empty">Loading clusters&hellip;</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="panel panel-wide" aria-labelledby="items-title" data-panel="items">
         <div class="panel-head">
           <div>

@@ -346,6 +346,36 @@ class StoryClusterSeamTest {
                 clusters.findAll().get(0).getId());
     }
 
+    @Test
+    void itemDtoClusterSizeMatchesMemberCount() throws Exception {
+        FeedSource a = src("Alpha Outlet");
+        FeedSource b = src("Beta Outlet");
+        FeedSource c = src("Gamma Outlet");
+        Instant t = base;
+        Item ia = it(a, "g-a", "unique breaking headline here", "summary", t);
+        Item ib = it(b, "g-b", "unique breaking headline here", "summary", t.plusSeconds(1));
+        Item ic = it(c, "g-c", "unique breaking headline here", "summary", t.plusSeconds(2));
+        Item un = it(a, "g-u", "unrelated story about nothing in particular", "summary", t);
+
+        pass();
+
+        Long clusterId = clusters.findAll().get(0).getId();
+        int memberCount = members.findByClusterId(clusterId).size();
+        assertThat(memberCount).isEqualTo(3);
+
+        JsonNode after = getJson("/api/v1/items?size=100");
+        for (JsonNode node : after.get("items")) {
+            Long id = node.get("id").asLong();
+            if (List.of(ia.getId(), ib.getId(), ic.getId()).contains(id)) {
+                assertThat(node.get("clusterId").asLong()).isEqualTo(clusterId);
+                assertThat(node.get("clusterSize").asInt()).isEqualTo(memberCount);
+            } else if (id.equals(un.getId())) {
+                assertThat(node.path("clusterId").isMissingNode() || node.get("clusterId") == null || node.get("clusterId").isNull()).isTrue();
+                assertThat(node.path("clusterSize").isMissingNode() || node.get("clusterSize") == null || node.get("clusterSize").isNull()).isTrue();
+            }
+        }
+    }
+
     private JsonNode getJson(String path) throws Exception {
         return mapper.readTree(mockMvc.perform(get(path)).andExpect(status().isOk()).andReturn()
                 .getResponse().getContentAsString());

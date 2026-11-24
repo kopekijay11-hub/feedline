@@ -20,8 +20,12 @@
       health: { lastUpdated: null, hasData: false },
       sources: { lastUpdated: null, hasData: false },
       items: { lastUpdated: null, hasData: false },
+      clusters: { lastUpdated: null, hasData: false },
       admin: { lastUpdated: null, hasData: false },
     },
+    expandedCluster: null,
+    expandedItem: null,
+    clusterMembersCache: new Map(),
   };
 
   const el = (id) => document.getElementById(id);
@@ -51,6 +55,10 @@
     itemsSummary: el('items-summary'),
     itemsError: el('items-error'),
     itemsState: el('items-state'),
+    clustersBody: el('clusters-body'),
+    clustersState: el('clusters-state'),
+    clustersSummary: el('clusters-summary'),
+    clustersError: el('clusters-error'),
     itemsPageMeta: el('items-page-meta'),
     itemsPrev: el('items-prev'),
     itemsNext: el('items-next'),
@@ -222,6 +230,23 @@
     } catch (_) {
       return null;
     }
+  }
+
+  // Shared member rendering for panel row expansion and item badge expansion.
+  // Feed-supplied strings pass through esc(); titles become links only when the
+  // member link passes safeHttpUrl, otherwise escaped text.
+  function clusterMembersHtml(members) {
+    const list = Array.isArray(members) ? members : [];
+    if (list.length === 0) return '<div class="empty">No members.</div>';
+    return list.map(m => {
+      const sourceName = esc(m == null ? '' : (m.sourceName || ''));
+      const title = esc(m == null ? '' : (m.title || '—'));
+      const link = m == null ? null : safeHttpUrl(m.link);
+      const titleHtml = link
+        ? `<a class="link mono" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${title}</a>`
+        : `<span class="mono">${title}</span>`;
+      return `<div class="cluster-member"><span class="cluster-source">${sourceName}</span> ${titleHtml}</div>`;
+    }).join('');
   }
 
   function adminClosedMessage(err) {
@@ -582,8 +607,13 @@
             <td>${fmtTime(item.publishedAt)}</td>
             <td>${fmtTime(item.fetchedAt)}</td>
             <td>${link}</td>
+            <td class="cluster-cell">
+              ${item.clusterId != null && item.clusterSize != null
+                ? `<button class="cluster-item-badge btn btn-secondary" data-cluster-id="${esc(item.clusterId)}" data-cluster-size="${esc(item.clusterSize)}" type="button">Same story · ${esc(item.clusterSize)} sources</button>`
+                : '<span class="muted">—</span>'}
+            </td>
           </tr>`;
-        }).join('') : '<tr><td colspan="6" class="empty">No items matched the current filters.</td></tr>';
+        }).join('') : '<tr><td colspan="7" class="empty">No items matched the current filters.</td></tr>';
       });
       if (pushStack) state.itemsCursorStack.push(pushStack);
       state.itemsCursor = data.nextCursor || null;
@@ -610,6 +640,131 @@
         showError(ui.itemsError, err);
       }
     }
+  }
+
+  async function loadClusters(auto = false) {
+    if (!auto) setPanelState('clusters', 'loading', 'Loading…');
+    try {
+      const data = await fetchJson('/api/v1/clusters?sinceHours=48');
+      const clusters = Array.isArray(data) ? data : [];
+      const wrap = ui.clustersBody.closest('.table-wrap');
+      preserveScroll(wrap, () => {
+        ui.clustersBody.innerHTML = clusters.length ? clusters.map(c => {
+          const more = Math.max(0, (c.sourceNames || []).length - 4);
+          const shown = (c.sourceNames || []).slice(0, 4);
+          const sources = shown.map(n => esc(n)).join(', ') + (more > 0 ? ` +${more} more` : '');
+          return `<tr data-cluster-id="${esc(c.id)}">
+            <td><div>${esc(c.representativeTitle || '—')}</div></td>
+            <td class="mono">${esc(fmtNumber(c.memberCount))} reports</td>
+            <td>${sources}</td>
+            <td>${fmtTime(c.lastSeenAt)}</td>
+            <td><button class="cluster-toggle" data-cluster-id="${esc(c.id)}" type="button">Show members</button></td>
+          </tr>`;
+        }).join('') : '<tr><td colspan="5" class="empty">No clusters in the last 48 hours.</td></tr>';
+      });
+      ui.clustersBody.querySelectorAll('.cluster-toggle').forEach(btn => {
+        btn.addEventListener('click', () => toggleCluster(btn.getAttribute('data-cluster-id')));
+      });
+      // re-expand a previously expanded cluster if it is still present
+      if (state.expandedCluster != null && clusters.some(c => c.id != null && c.id.toString() === String(state.expandedCluster))) {
+        const c = clusters.find(x => x.id != null && x.id.toString() === String(state.expandedCluster));
+        toggleCluster(String(c.id));
+      }
+      clearError(ui.clustersError);
+      const now = new Date();
+      state.panel.clusters.lastUpdated = now;
+      state.panel.clusters.hasData = true;
+      if (clusters.length === 0) {
+        setPanelState('clusters', 'empty', 'Empty — no clusters');
+      } else {
+        setPanelState('clusters', 'ready', `Last updated ${fmtClock(now)} — ${clusters.length} clusters`);
+      }
+      return true;
+    } catch (err) {
+      if (state.panel.clusters.hasData) {
+        setPanelState('clusters', 'stale', `Last updated ${fmtClock(state.panel.clusters.lastUpdated)} — refresh failed`);
+        showError(ui.clustersError, err);
+      } else {
+        ui.clustersBody.innerHTML = '<tr><td colspan="5" class="empty">Failed to load clusters.</td></tr>';
+        setPanelState('clusters', 'error', 'Error');
+        showError(ui.clustersError, err);
+      }
+      throw err;
+    }
+  }
+
+  function collapseCluster() {
+    const prev = ui.clustersBody.querySelector('tr[data-members-for]');
+    if (prev) prev.remove();
+    state.expandedCluster = null;
+    const btn = ui.clustersBody.querySelector('.cluster-toggle');
+    if (btn) btn.textContent = 'Show members';
+  }
+
+  async function toggleCluster(id) {
+    if (!id) return;
+    if (state.expandedCluster === id) {
+      collapseCluster();
+      return;
+    }
+    collapseCluster();
+    state.expandedCluster = id;
+    const row = ui.clustersBody.querySelector(`tr[data-cluster-id="${id}"]`);
+    if (!row) return;
+    const btn = row.querySelector('.cluster-toggle');
+    let members = state.clusterMembersCache.get(id);
+    if (members == null) {
+      try {
+        const data = await fetchJson(`/api/v1/clusters/${id}`);
+        members = Array.isArray(data.members) ? data.members : [];
+        state.clusterMembersCache.set(id, members);
+      } catch (err) {
+        showError(ui.clustersError, err);
+        state.expandedCluster = null;
+        if (btn) btn.textContent = 'Show members';
+        return;
+      }
+    }
+    row.insertAdjacentHTML('afterend', `<tr data-members-for="${esc(id)}"><td colspan="5"><div class="cluster-members">${clusterMembersHtml(members)}</div></td></tr>`);
+    if (btn) btn.textContent = 'Hide members';
+  }
+
+  async function toggleItemCluster(clusterId, clusterSize, btn) {
+    if (!clusterId) return;
+    const tr = btn.closest('tr');
+    if (!tr) return;
+    if (state.expandedItem === clusterId) {
+      const prev = ui.itemsBody.querySelector('tr[data-item-members]');
+      if (prev) prev.remove();
+      state.expandedItem = null;
+      btn.textContent = `Same story · ${esc(clusterSize)} sources`;
+      return;
+    }
+    const prev = ui.itemsBody.querySelector('tr[data-item-members]');
+    if (prev) {
+      prev.remove();
+      const prevBtn = ui.itemsBody.querySelector('.cluster-item-badge[data-expanded="true"]');
+      if (prevBtn) prevBtn.textContent = `Same story · ${esc(prevBtn.getAttribute('data-cluster-size'))} sources`;
+      prevBtn?.setAttribute('data-expanded', 'false');
+    }
+    state.expandedItem = clusterId;
+    btn.setAttribute('data-expanded', 'true');
+    btn.textContent = 'Collapse';
+    let members = state.clusterMembersCache.get(clusterId);
+    if (members == null) {
+      try {
+        const data = await fetchJson(`/api/v1/clusters/${clusterId}`);
+        members = Array.isArray(data.members) ? data.members : [];
+        state.clusterMembersCache.set(clusterId, members);
+      } catch (err) {
+        showError(ui.itemsError, err);
+        state.expandedItem = null;
+        btn.setAttribute('data-expanded', 'false');
+        btn.textContent = `Same story · ${esc(clusterSize)} sources`;
+        return;
+      }
+    }
+    tr.insertAdjacentHTML('afterend', `<tr data-item-members="${esc(clusterId)}"><td colspan="7"><div class="cluster-members">${clusterMembersHtml(members)}</div></td></tr>`);
   }
 
   async function loadPoison(auto = false) {
@@ -740,6 +895,7 @@
          const tableFocused = !!ae && (ui.sourcesBody.contains(ae) || ui.itemsBody.contains(ae) || ui.poisonBody.contains(ae));
          if (adminFocused || tableFocused || state.adminBusy) return;
         loadHealth(true).catch(() => {});
+        loadClusters(true).catch(() => {});
         if (state.adminKey && !adminFocused && !state.adminBusy) loadPoison(true).catch(() => {});
       }, 15000);
     }
@@ -772,6 +928,7 @@
   ui.autoRefresh.addEventListener('change', (e) => setAutoRefresh(e.target.checked));
   ui.refreshAll.addEventListener('click', () => {
     loadHealth(false).catch(() => {});
+    loadClusters(false).catch(() => {});
     if (state.itemsLastQuery) loadItems(state.itemsLastQuery.cursor, null).catch(() => {});
     if (state.adminKey) loadPoison(false).catch(() => {});
   });
@@ -839,6 +996,12 @@
     });
   }
 
+  ui.itemsBody.addEventListener('click', (e) => {
+    const btn = e.target && typeof e.target.closest === 'function' ? e.target.closest('button.cluster-item-badge') : null;
+    if (!btn) return;
+    toggleItemCluster(btn.getAttribute('data-cluster-id'), btn.getAttribute('data-cluster-size'), btn);
+  });
+
   setDefaultWindow();
   setAutoRefresh(true);
   (async () => {
@@ -849,5 +1012,6 @@
     renderChips();
     updateOverallStatus();
     loadItems(null, null).catch(() => {});
+    loadClusters().catch(() => {});
   })();
 })();
