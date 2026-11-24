@@ -63,7 +63,8 @@ public class ItemsController {
             @RequestParam(name = "fetchedTo", required = false) Instant fetchedTo,
             @Parameter(description = "Opaque keyset cursor from a previous page") @RequestParam(name = "cursor", required = false) String cursor,
             @Parameter(description = "Page size (max feed.items.max-page-size, default feed.items.default-page-size)")
-            @RequestParam(name = "size", required = false) Integer size) {
+            @RequestParam(name = "size", required = false) Integer size,
+            @Parameter(description = "Sort order: recent (default) or top") @RequestParam(name = "sort", required = false) String sort) {
         int pageSize = (size == null) ? itemsConfig.getDefaultPageSize() : size;
         if (pageSize <= 0) {
             pageSize = itemsConfig.getDefaultPageSize();
@@ -96,7 +97,7 @@ public class ItemsController {
             }
         }
         try {
-            ItemsPage page = queryService.list(source, parsedSources, q, from, to, fetchedFrom, fetchedTo, cursor, pageSize);
+            ItemsPage page = queryService.list(source, parsedSources, q, from, to, fetchedFrom, fetchedTo, cursor, pageSize, sort);
             return ResponseEntity.ok(page);
         } catch (IllegalArgumentException ex) {
             ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
