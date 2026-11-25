@@ -157,6 +157,14 @@ public class SourceHealthService {
                 interval.toSeconds(), details);
     }
 
+    public List<SourceScorecard> scorecards() {
+        return sources.findAll().stream()
+                .map(this::healthFor)
+                .map(SourceScorecardCalculator::score)
+                .sorted(java.util.Comparator.comparing(SourceScorecard::id, java.util.Comparator.nullsLast(Long::compareTo)))
+                .toList();
+    }
+
     private void updateMetrics(List<SourceHealthDetail> details) {
         if (metrics == null) {
             return;
