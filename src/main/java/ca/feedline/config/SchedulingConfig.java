@@ -18,6 +18,8 @@ public class SchedulingConfig {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(poolSize);
         scheduler.setThreadNamePrefix("feedline-sched-");
+        scheduler.setWaitForTasksToCompleteOnShutdown(true);
+        scheduler.setAwaitTerminationSeconds(30);
         return scheduler;
     }
 }
