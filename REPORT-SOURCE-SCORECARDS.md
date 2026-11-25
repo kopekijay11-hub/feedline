@@ -43,7 +43,9 @@ base: 1f71460c1e7ad3701f86c647b1126ff65f83a7cd == ls-remote 1f71460c1e7ad3701f86
 
 ## Verification (clean tree at branch tip)
 - Command: `mvn clean verify`
-- `git status --short` before verify recorded clean after staging? Worktree had staged changes for implementation; verify was run on tree including those staged/untracked implementation files and completed with clean build artifacts not committed in report step; final `git status --short` before report write: only implementation files staged as below.
+- Committed tip the verify ran at: `93ae18b96fe5a9fa6cb06b23371a84494c0a7b7d`
+- `git status --short` before verify: empty (no output).
+- `git status --short` after verify: empty (no output).
 - Verdict lines:
   - `[INFO] Tests run: 230, Failures: 0, Errors: 0, Skipped: 0`
   - `[INFO] BugInstance size is 0`
@@ -53,4 +55,4 @@ base: 1f71460c1e7ad3701f86c647b1126ff65f83a7cd == ls-remote 1f71460c1e7ad3701f86
 - None from rubric/endpoint/dashboard/test contract. SpotBugs initially flagged record list exposure and injected service field; fixed with `List.copyOf` in `SourceScorecard` compact constructor and `@SuppressFBWarnings(EI_EXPOSE_REP2)` on `SourcesScorecardController` constructor, then verify rerun to green.
 
 ## Push proof / hold
-- To be completed after commit/push: local tip == origin/source-scorecards tip (full SHAs), fast-forward only. HOLD — no merge without grading. CLOSING GATE: after merge + restart, operator confirms Live grade chips render and source-row click still filters items list.
+- Code commit `93ae18b96fe5a9fa6cb06b23371a84494c0a7b7d` is the branch's implementation commit and matched origin at push time: local tip `93ae18b96fe5a9fa6cb06b23371a84494c0a7b7d` == `origin/source-scorecards` tip `93ae18b96fe5a9fa6cb06b23371a84494c0a7b7d` (full SHAs), fast-forward only. HOLD — no merge without grading. CLOSING GATE: after merge + restart, operator confirms Live grade chips render and source-row click still filters items list.
