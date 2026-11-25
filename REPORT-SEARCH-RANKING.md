@@ -52,12 +52,26 @@ Scratch DB dropped and port 8081 stopped after evidence capture.
 
 ## Test inventory
 
-No new test classes added by this job; validation performed against the existing suite (205 tests) plus manual/scratch verification above. Hidden/grading tests for Parts 3 are expected to extend `ItemsApiSeamTest`, `ItemQueryPaginationIntegrationTest`, `OpsDashboardSeamTest`.
+REV2 Part 3 completion pass. Testcontainers only; corpus-dependency class: NONE; no live DB and no tower state. Every test seeds its own sources, items, clusters, and cluster members. No implementation changes were made in this pass.
+
+Clause 1 — API ranking battery, `src/test/java/ca/feedline/ItemsRankedSearchSeamTest.java`:
+- `rankedOrder_groupsByEffectiveClusterSizeThenFetchedAtThenId` — clause 1a
+- `rankedPagination_walksNextCursorWithoutDuplicatesOrSkips` — clause 1b
+- `defaultAndRecent_modesHaveIdenticalRecentOrder` — clause 1c
+- `topStoriesMode_withoutQueryRanksWholeListing` — clause 1d
+- `invalidSortAndCursorModeMismatches_return400` — clause 1e
+- `rankedSourcesFilter_ranksWithinOneSourceOnly` — clause 1f
+
+Clause 2 — dashboard served-asset seam, `src/test/java/ca/feedline/OpsDashboardSeamTest.java`:
+- `opsJsAddsSortTopWhenQueryPresent` — clause 2(i)
+- `topStoriesToggleSendsSortTopWithoutQuery` — clause 2(ii)
+
+Dashboard assertions inspect the MockMvc-served `/index.html` and `/ops.js` bodies in the existing static-asset seam style. No JS test tooling was added.
 
 ## Verify
 
-`mvn clean verify`:
-- Tests run: 205, Failures: 0, Errors: 0, Skipped: 0
+`mvn clean verify` on the branch tip, with `git status --short` checked empty before and after the run:
+- Tests run: 213, Failures: 0, Errors: 0, Skipped: 0
 - SpotBugs BugInstance size is 0
 - BUILD SUCCESS
 - git status --short: (empty) — clean working tree
