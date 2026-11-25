@@ -60,7 +60,7 @@ public class ItemQueryService {
 
     public ItemsPage list(Long source, java.util.List<Long> sources, String q, Instant from, Instant to,
                           Instant fetchedFrom, Instant fetchedTo, String cursor, int requestedSize) {
-        return listInternal(source, sources, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize);
+        return listInternal(source, sources, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize, null);
     }
 
     public ItemsPage list(Long source, String sources, String q, Instant from, Instant to, Instant fetchedFrom,
@@ -86,8 +86,69 @@ public class ItemQueryService {
         return list(source, parsed, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize);
     }
 
+    public ItemsPage list(Long source, String q, Instant from, Instant to, Instant fetchedFrom,
+                          Instant fetchedTo, String cursor, int requestedSize, String sort) {
+        return list(source, (java.util.List<Long>) null, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize, sort);
+    }
+
+    public ItemsPage list(Long source, java.util.List<Long> sources, String q, Instant from, Instant to,
+                          Instant fetchedFrom, Instant fetchedTo, String cursor, int requestedSize, String sort) {
+        return listInternal(source, sources, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize, sort);
+    }
+
+    public ItemsPage list(Long source, String sources, String q, Instant from, Instant to, Instant fetchedFrom,
+                          Instant fetchedTo, String cursor, int requestedSize, String sort) {
+        java.util.List<Long> parsed = null;
+        if (sources != null && !sources.isBlank()) {
+            parsed = new java.util.ArrayList<>();
+            for (String part : sources.split(",")) {
+                String t = part.trim();
+                if (t.isEmpty()) {
+                    continue;
+                }
+                try {
+                    parsed.add(Long.valueOf(t));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("invalid source id: " + t);
+                }
+            }
+            if (parsed.isEmpty()) {
+                parsed = null;
+            }
+        }
+        return list(source, parsed, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize, sort);
+    }
+
+    public ItemsPage list(Long source, java.util.List<Long> sources, String q, String sort, Instant from, Instant to,
+                          Instant fetchedFrom, Instant fetchedTo, String cursor, int requestedSize) {
+        return listInternal(source, sources, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize, sort);
+    }
+
+    public ItemsPage list(Long source, String sources, String q, String sort, Instant from, Instant to, Instant fetchedFrom,
+                          Instant fetchedTo, String cursor, int requestedSize) {
+        java.util.List<Long> parsed = null;
+        if (sources != null && !sources.isBlank()) {
+            parsed = new java.util.ArrayList<>();
+            for (String part : sources.split(",")) {
+                String t = part.trim();
+                if (t.isEmpty()) {
+                    continue;
+                }
+                try {
+                    parsed.add(Long.valueOf(t));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("invalid source id: " + t);
+                }
+            }
+            if (parsed.isEmpty()) {
+                parsed = null;
+            }
+        }
+        return list(source, parsed, q, from, to, fetchedFrom, fetchedTo, cursor, requestedSize, sort);
+    }
+
     private ItemsPage listInternal(Long source, java.util.List<Long> sources, String q, Instant from, Instant to,
-                                   Instant fetchedFrom, Instant fetchedTo, String cursor, int requestedSize) {
+                                   Instant fetchedFrom, Instant fetchedTo, String cursor, int requestedSize, String sort) {
         if (from != null && to != null && from.isAfter(to)) {
             throw new IllegalArgumentException("from must not be after to");
         }
@@ -113,8 +174,18 @@ public class ItemQueryService {
         if (effective.size() > 50) {
             throw new IllegalArgumentException("too many source ids (max 50)");
         }
+        boolean ranked;
+        if (sort == null) {
+            ranked = false;
+        } else if (sort.equals("recent")) {
+            ranked = false;
+        } else if (sort.equals("top")) {
+            ranked = true;
+        } else {
+            throw new IllegalArgumentException("invalid sort value: " + sort);
+        }
         int size = requestedSize <= 0 ? itemsConfig.getDefaultPageSize() : Math.min(requestedSize, itemsConfig.getMaxPageSize());
-        Cursor c = decodeCursor(cursor);
+        Cursor c = decodeCursor(cursor, ranked);
 
         StringBuilder where = new StringBuilder("WHERE 1=1");
         if (!effective.isEmpty()) {
@@ -145,20 +216,40 @@ public class ItemQueryService {
         long total = ((Number) countQuery.getSingleResult()).longValue();
 
         // page query
-        StringBuilder pageSql = new StringBuilder(
-                "SELECT i.id, i.source_id, i.guid, i.link, i.title, i.summary, i.published_at, i.fetched_at, scm.cluster_id "
-                        + "FROM items i LEFT JOIN story_cluster_members scm ON scm.item_id = i.id "
-                        + where.toString().replace("source_id", "i.source_id")
-                              .replace("search_vector", "i.search_vector")
-                              .replace("published_at", "i.published_at")
-                              .replace("fetched_at", "i.fetched_at"));
-        if (c != null) {
-            pageSql.append(" AND (i.fetched_at < :cf OR (i.fetched_at = :cf AND i.id < :ci))");
+        StringBuilder pageSql;
+        if (ranked) {
+            pageSql = new StringBuilder(
+                    "SELECT i.id, i.source_id, i.guid, i.link, i.title, i.summary, i.published_at, i.fetched_at, scm.cluster_id, COALESCE(cs.cnt, 1) "
+                            + "FROM items i LEFT JOIN story_cluster_members scm ON scm.item_id = i.id "
+                            + "LEFT JOIN (SELECT cluster_id, COUNT(*) AS cnt FROM story_cluster_members GROUP BY cluster_id) cs "
+                            + "ON cs.cluster_id = scm.cluster_id "
+                            + where.toString().replace("source_id", "i.source_id")
+                                  .replace("search_vector", "i.search_vector")
+                                  .replace("published_at", "i.published_at")
+                                  .replace("fetched_at", "i.fetched_at"));
+            if (c != null) {
+                pageSql.append(" AND (COALESCE(cs.cnt, 1) < :cs OR (COALESCE(cs.cnt, 1) = :cs AND i.fetched_at < :cf) OR (COALESCE(cs.cnt, 1) = :cs AND i.fetched_at = :cf AND i.id < :ci))");
+            }
+            pageSql.append(" ORDER BY COALESCE(cs.cnt, 1) DESC, i.fetched_at DESC, i.id DESC LIMIT :limit");
+        } else {
+            pageSql = new StringBuilder(
+                    "SELECT i.id, i.source_id, i.guid, i.link, i.title, i.summary, i.published_at, i.fetched_at, scm.cluster_id "
+                            + "FROM items i LEFT JOIN story_cluster_members scm ON scm.item_id = i.id "
+                            + where.toString().replace("source_id", "i.source_id")
+                                  .replace("search_vector", "i.search_vector")
+                                  .replace("published_at", "i.published_at")
+                                  .replace("fetched_at", "i.fetched_at"));
+            if (c != null) {
+                pageSql.append(" AND (i.fetched_at < :cf OR (i.fetched_at = :cf AND i.id < :ci))");
+            }
+            pageSql.append(" ORDER BY i.fetched_at DESC, i.id DESC LIMIT :limit");
         }
-        pageSql.append(" ORDER BY i.fetched_at DESC, i.id DESC LIMIT :limit");
         Query pageQuery = entityManager.createNativeQuery(pageSql.toString());
         bindParams(pageQuery, effective, q, from, to, fetchedFrom, fetchedTo, c);
         if (c != null) {
+            if (ranked && c.effectiveSize() != null) {
+                pageQuery.setParameter("cs", c.effectiveSize());
+            }
             pageQuery.setParameter("cf", c.fetchedAt());
             pageQuery.setParameter("ci", c.id());
         }
@@ -189,7 +280,12 @@ public class ItemQueryService {
         String nextCursor = null;
         if (hasMore && !items.isEmpty()) {
             ItemDto last = items.get(items.size() - 1);
-            nextCursor = encodeCursor(last.fetchedAt(), last.id());
+            if (ranked) {
+                int eff = (last.clusterSize() == null) ? 1 : last.clusterSize();
+                nextCursor = encodeCursor(eff, last.fetchedAt(), last.id());
+            } else {
+                nextCursor = encodeCursor(last.fetchedAt(), last.id());
+            }
         }
         return new ItemsPage(items, nextCursor, total, hasMore);
     }
@@ -287,22 +383,37 @@ public class ItemQueryService {
         return Instant.parse(o.toString());
     }
 
-    private Cursor decodeCursor(String cursor) {
+    private Cursor decodeCursor(String cursor, boolean ranked) {
         if (cursor == null || cursor.isBlank()) {
             return null;
         }
         try {
             String decoded = new String(Base64.getUrlDecoder().decode(cursor), java.nio.charset.StandardCharsets.UTF_8);
             String[] parts = decoded.split("\\|", -1);
+            if (ranked) {
+                if (parts.length != 3) {
+                    throw new IllegalArgumentException("bad cursor");
+                }
+                int eff = Integer.parseInt(parts[0]);
+                Instant ts = Instant.parse(parts[1]);
+                long id = Long.parseLong(parts[2]);
+                return new Cursor(ts, id, eff);
+            }
             if (parts.length != 2) {
                 throw new IllegalArgumentException("bad cursor");
             }
             Instant ts = Instant.parse(parts[0]);
             long id = Long.parseLong(parts[1]);
-            return new Cursor(ts, id);
+            return new Cursor(ts, id, null);
         } catch (IllegalArgumentException | DateTimeException e) {
             throw new IllegalArgumentException("malformed cursor");
         }
+    }
+
+    private String encodeCursor(int effectiveSize, Instant fetchedAt, Long id) {
+        String raw = effectiveSize + "|" + fetchedAt.toString() + "|" + id;
+        return Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private String encodeCursor(Instant fetchedAt, Long id) {
@@ -311,6 +422,6 @@ public class ItemQueryService {
                 .encodeToString(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
-    private record Cursor(Instant fetchedAt, long id) {
+    private record Cursor(Instant fetchedAt, long id, Integer effectiveSize) {
     }
 }

@@ -25,6 +25,7 @@
     },
     expandedCluster: null,
     expandedItem: null,
+    topStories: false,
     clusterMembersCache: new Map(),
   };
 
@@ -63,6 +64,7 @@
     itemsPrev: el('items-prev'),
     itemsNext: el('items-next'),
     itemsReset: el('items-reset'),
+    topStories: el('top-stories'),
     filterSource: el('filter-source'),
     categoryChips: el('category-chips'),
     filterSources: el('filter-sources'),
@@ -580,6 +582,7 @@
     if (to) params.set('fetchedTo', to);
     if (size) params.set('size', size);
     if (cursor) params.set('cursor', cursor);
+    if (q || state.topStories) params.set('sort', 'top');
     return params;
   }
 
@@ -590,7 +593,8 @@
       const url = '/api/v1/items?' + params.toString();
       const data = await fetchJson(url);
       const items = Array.isArray(data.items) ? data.items : [];
-      ui.itemsSummary.textContent = `${data.total} items total — showing ${items.length} — hasMore=${data.hasMore}`;
+      const ranked = params.get('sort') === 'top';
+      ui.itemsSummary.textContent = `${data.total} items total — showing ${items.length} — hasMore=${data.hasMore}` + (ranked ? ' — ranked by story size' : '');
       const wrap = ui.itemsBody.closest('.table-wrap');
       preserveScroll(wrap, () => {
         ui.itemsBody.innerHTML = items.length ? items.map(item => {
@@ -955,6 +959,11 @@
   ui.itemsReset.addEventListener('click', () => {
     state.selectedSourceIds.clear();
     ui.filterQ.value = '';
+    state.topStories = false;
+    if (ui.topStories) {
+      ui.topStories.setAttribute('aria-pressed', 'false');
+      ui.topStories.classList.remove('active');
+    }
     setDefaultWindow();
     state.itemsCursorStack = [];
     state.itemsCursor = null;
@@ -963,6 +972,18 @@
     updateUrlFromState();
     loadItems(null, null);
   });
+
+  if (ui.topStories) {
+    ui.topStories.addEventListener('click', () => {
+      state.topStories = !state.topStories;
+      ui.topStories.setAttribute('aria-pressed', String(state.topStories));
+      ui.topStories.classList.toggle('active', state.topStories);
+      state.itemsCursorStack = [];
+      state.itemsCursor = null;
+      updateUrlFromState();
+      loadItems(null, null);
+    });
+  }
 
   ui.itemsNext.addEventListener('click', () => {
     if (!state.itemsCursor) return;

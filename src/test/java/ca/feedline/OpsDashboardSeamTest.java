@@ -80,6 +80,35 @@ class OpsDashboardSeamTest {
     }
 
     @Test
+    void opsJsAddsSortTopWhenQueryPresent() throws Exception {
+        String js = mockMvc.perform(get("/ops.js"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(js).contains("function buildItemsQuery(cursor) {");
+        assertThat(js).contains("const q = ui.filterQ.value.trim();");
+        assertThat(js).contains("if (q) params.set('q', q);");
+        assertThat(js).contains("if (q || state.topStories) params.set('sort', 'top');");
+    }
+
+    @Test
+    void topStoriesToggleSendsSortTopWithoutQuery() throws Exception {
+        String html = mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(html).contains("id=\"top-stories\"");
+        assertThat(html).contains(">Top stories</button>");
+
+        String js = mockMvc.perform(get("/ops.js"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(js).contains("topStories: false");
+        assertThat(js).contains("topStories: el('top-stories')");
+        assertThat(js).contains("state.topStories = !state.topStories;");
+        assertThat(js).contains("if (q || state.topStories) params.set('sort', 'top');");
+    }
+
+    @Test
     void adminEndpointsRemainProtected() throws Exception {
         mockMvc.perform(get("/api/v1/admin/outbox/stats"))
                 .andExpect(status().isUnauthorized())
