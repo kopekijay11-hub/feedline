@@ -14,6 +14,7 @@
     actuatorOk: null,
     lastSources: null,
     lastSourcesAggregate: null,
+    lastScorecards: [],
     categories: {},
     selectedSourceIds: new Set(),
     panel: {
@@ -315,16 +316,43 @@
     }
   }
 
+  function scorecardForSource(sourceId) {
+    if (!Array.isArray(state.lastScorecards)) return null;
+    return state.lastScorecards.find(s => s && Number(s.id) === Number(sourceId)) || null;
+  }
+
+  function scorecardCell(scorecard) {
+    if (!scorecard || scorecard.grade == null) {
+      return '<span class="badge unknown" title="Not yet graded">—</span>';
+    }
+    const score = scorecard.score == null ? '' : `score=${scorecard.score}`;
+    const first = Array.isArray(scorecard.deductions) && scorecard.deductions.length
+      ? scorecard.deductions[0]
+      : null;
+    const detail = first && first.detail ? String(first.detail) : 'no deductions';
+    const tooltip = [score, detail].filter(Boolean).join(' — ');
+    const grade = String(scorecard.grade).toUpperCase();
+    let cls = 'unknown';
+    if (grade === 'A') cls = 'up';
+    else if (grade === 'B' || grade === 'C') cls = 'degraded';
+    else if (grade === 'D' || grade === 'F') cls = 'down';
+    return `<span class="badge ${cls}" title="${esc(tooltip)}">${esc(grade)}</span>`;
+  }
+
   async function loadSources() {
     try {
-      const data = await fetchJson('/api/v1/sources/health');
+      const [data, scorecards] = await Promise.all([
+        fetchJson('/api/v1/sources/health'),
+        fetchJson('/api/v1/sources/scorecard').catch(() => [])
+      ]);
       const sources = Array.isArray(data.sources) ? data.sources : [];
       state.lastSources = sources;
       state.lastSourcesAggregate = data;
+      state.lastScorecards = Array.isArray(scorecards) ? scorecards : [];
       const wrap = ui.sourcesBody.closest('.table-wrap');
       preserveScroll(wrap, () => {
         if (sources.length === 0) {
-          ui.sourcesBody.innerHTML = '<tr><td colspan="7" class="empty">No sources registered.</td></tr>';
+          ui.sourcesBody.innerHTML = '<tr><td colspan="8" class="empty">No sources registered.</td></tr>';
         } else {
           ui.sourcesBody.innerHTML = sources.map(s => {
             const diag = [];
@@ -333,8 +361,10 @@
             if (s.lastErrorAt) diag.push(`at=${s.lastErrorAt}`);
             const diagText = diag.length ? diag.join('\n') : '—';
             const backoff = [s.backoff ? 'active' : null, s.nextPollAt ? `next=${s.nextPollAt}` : null].filter(Boolean).join(', ');
+            const scorecard = scorecardForSource(s.id);
             return `<tr data-source-id="${esc(s.id)}" style="cursor:pointer" title="Click to read this source">
               <td><div>${esc(s.name || ('Source ' + s.id))}</div><div class="detail mono">id=${esc(s.id)}</div></td>
+              <td>${scorecardCell(scorecard)}</td>
               <td>${badge(s.state)}</td>
               <td>${fmtTime(s.lastSuccessAt)}<div class="detail">${s.secondsSinceLastSuccess == null ? '' : esc(s.secondsSinceLastSuccess + 's ago')}</div></td>
               <td class="mono">${esc(fmtNumber(s.consecutiveFailures))}</td>
@@ -365,7 +395,7 @@
         setPanelState('sources', 'stale', `Last updated ${fmtClock(state.panel.sources.lastUpdated)} — refresh failed`);
         showError(ui.sourcesError, err);
       } else {
-        ui.sourcesBody.innerHTML = '<tr><td colspan="7" class="empty">Failed to load sources.</td></tr>';
+        ui.sourcesBody.innerHTML = '<tr><td colspan="8" class="empty">Failed to load sources.</td></tr>';
         setPanelState('sources', 'error', 'Error');
         showError(ui.sourcesError, err);
       }
