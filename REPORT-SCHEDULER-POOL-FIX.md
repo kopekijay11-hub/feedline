@@ -100,3 +100,42 @@ No health threshold, poll delay, or clustering behaviour was changed.
 
 Push: fast-forward only as `scheduler-pool-fix`. HOLD: no merge, no live
 before/after observation, and no scorecard work performed.
+
+## Completion pass
+
+- `SchedulingConfig.taskScheduler(...)` now sets
+  `scheduler.setWaitForTasksToCompleteOnShutdown(true)` and
+  `scheduler.setAwaitTerminationSeconds(30)` on the explicit
+  `ThreadPoolTaskScheduler` bean.
+- `SchedulingConfigTest.waitsForInFlightTasksToFinishOnShutdown` submits a
+  ~1500 ms sleeping `Runnable`, waits for it to start, calls
+  `scheduler.shutdown()`, then asserts `completedNormally` is true and
+  `interrupted` is false. The test discriminates: with the two setters
+  temporarily removed, the default `waitForTasksToCompleteOnShutdown=false`
+  makes shutdown interrupt the sleeper and the test fails; with them present
+  it passes. No reflection is used.
+- The 30-second await-termination value is not behaviourally testable without
+  a 30 s test; it is covered by the settings statement above only.
+- Re-verification on a clean working tree at the committed code+tests tip:
+  `git status --short` was empty before and after `mvn -B verify`; the added
+  test method makes the suite 216 tests.
+
+Surefire verdict line, verbatim:
+
+```
+[INFO] Tests run: 216, Failures: 0, Errors: 0, Skipped: 0
+```
+
+SpotBugs verdict lines, verbatim:
+
+```
+[INFO] BugInstance size is 0
+[INFO] Error size is 0
+[INFO] No errors/warnings found
+```
+
+Gate verdict line, verbatim:
+
+```
+[INFO] BUILD SUCCESS
+```
