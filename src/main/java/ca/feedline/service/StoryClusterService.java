@@ -11,6 +11,8 @@ import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.ItemRepository;
 import ca.feedline.repository.StoryClusterMemberRepository;
 import ca.feedline.repository.StoryClusterRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -35,6 +37,8 @@ import java.util.regex.Pattern;
 @Service
 @ConditionalOnProperty(name = "feed.cluster.enabled", havingValue = "true", matchIfMissing = true)
 public class StoryClusterService {
+
+    private static final Logger log = LoggerFactory.getLogger(StoryClusterService.class);
 
     private static final Set<String> STOPWORDS = Set.of(
             "the", "a", "an", "of", "to", "in", "on", "for", "and", "or", "at", "by", "with", "as", "is", "are", "was", "were");
@@ -127,16 +131,20 @@ public class StoryClusterService {
 
     @Scheduled(fixedDelayString = "${feed.cluster.pass-delay-ms:300000}")
     public void scheduledPass() {
-        performPass();
+        log.info("Story cluster pass started");
+        long startedAt = System.nanoTime();
+        int itemsConsidered = performPass();
+        log.info("Story cluster pass completed in {} ms; items considered: {}",
+                Duration.ofNanos(System.nanoTime() - startedAt).toMillis(), itemsConsidered);
     }
 
     @Transactional
-    private void performPass() {
+    private int performPass() {
         if (!isEnabled()) {
-            return;
+            return 0;
         }
         if (items == null || clusters == null || members == null) {
-            return;
+            return 0;
         }
         FeedProperties.Cluster cfg = feedProperties.getCluster();
         int windowHours = cfg.getWindowHours();
@@ -333,7 +341,7 @@ public class StoryClusterService {
             }
         }
 
-        // done
+        return allItems.size();
     }
 
     private boolean isEnabled() {
