@@ -48,6 +48,12 @@ class OpsDashboardSeamTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).contains("<title>Feedline Ops Dashboard</title>");
+        assertThat(body).contains("id=\"view-reader\"");
+        assertThat(body).contains("id=\"view-ops\"");
+        assertThat(body).contains("id=\"status-strip\"");
+        assertThat(body).contains("id=\"subscribe-popover-hook\"");
+        assertThat(body).contains("id=\"view-reader-btn\"");
+        assertThat(body).contains("id=\"view-ops-btn\"");
         assertThat(body).contains("System &amp; Outbox Health");
         assertThat(body).contains("Feed Sources");
         assertThat(body).contains("Point-in-Time Items");

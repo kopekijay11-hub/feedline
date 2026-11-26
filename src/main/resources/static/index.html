@@ -16,6 +16,10 @@
           <p class="subtitle">Operations dashboard &middot; works offline &middot; no external dependencies</p>
         </div>
       </div>
+      <nav class="view-switch" role="tablist" aria-label="View">
+        <button id="view-reader-btn" class="switch active" role="tab" aria-selected="true" data-view="reader">Reader</button>
+        <button id="view-ops-btn" class="switch" role="tab" aria-selected="false" data-view="ops">Ops</button>
+      </nav>
       <div class="topbar-controls">
         <label class="field compact">
           <span>Admin server key (in memory only)</span>
@@ -39,6 +43,8 @@
       <div id="overall-status-detail" class="status-detail">Loading sources and health checks&hellip;</div>
     </section>
 
+    <section id="status-strip" class="status-strip" role="status" aria-live="polite"></section>
+    <div id="view-reader" class="view" data-view="reader">
     <main class="grid">
       <section class="panel panel-wide" aria-labelledby="subscribe-title" data-panel="subscribe">
         <div class="panel-head">
@@ -48,7 +54,7 @@
             <p class="panel-help">Subscribe in any RSS reader. One feed per category, plus an all-items feed and an OPML import.</p>
           </div>
         </div>
-        <div class="subscribe-links">
+        <div id="subscribe-popover-hook" class="subscribe-links">
           <a href="/feed/all.xml">All items</a>
           <a href="/feed/world.xml">World</a>
           <a href="/feed/business-markets.xml">Business &amp; Markets</a>
@@ -280,6 +286,8 @@
         </div>
       </section>
     </main>
+    </div>
+    <div id="view-ops" class="view hidden" data-view="ops"></div>
   </div>
   <script src="/ops.js" defer></script>
 </body>
