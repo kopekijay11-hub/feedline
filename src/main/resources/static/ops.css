@@ -206,3 +206,15 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline-width: 2px;
 .cluster-member a { color: var(--accent); text-decoration: none; }
 .cluster-member a:hover { text-decoration: underline; }
 .cluster-member span.mono { color: var(--text); }
+
+.feed-row { display:block; width:100%; text-align:left;
+  background:none; border:none; padding:0.35rem 0;
+  cursor:pointer; color:inherit; font:inherit; }
+.feed-row:hover { text-decoration: underline; }
+.subscribe-popover { border:1px solid var(--border, #ccc);
+  border-radius:8px; padding:0.75rem; margin-top:0.5rem; }
+.popover-title { font-weight:600; margin:0 0 0.25rem; }
+.popover-url { font-size:0.85em; word-break:break-all;
+  margin:0 0 0.5rem; }
+.popover-preview { margin-top:0.5rem; }
+.preview-list { margin:0; padding-left:1.1rem; }

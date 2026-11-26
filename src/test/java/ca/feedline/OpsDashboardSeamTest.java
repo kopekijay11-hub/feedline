@@ -51,7 +51,7 @@ class OpsDashboardSeamTest {
         assertThat(body).contains("id=\"view-reader\"");
         assertThat(body).contains("id=\"view-ops\"");
         assertThat(body).contains("id=\"status-strip\"");
-        assertThat(body).contains("id=\"subscribe-popover-hook\"");
+        assertThat(body).contains("id=\"subscribe-popover\"");
         assertThat(body).contains("id=\"view-reader-btn\"");
         assertThat(body).contains("id=\"view-ops-btn\"");
         assertThat(body).contains("System &amp; Outbox Health");
@@ -125,6 +125,22 @@ class OpsDashboardSeamTest {
         assertThat(js).contains("topStories: el('top-stories')");
         assertThat(js).contains("state.topStories = !state.topStories;");
         assertThat(js).contains("if (q || state.topStories) params.set('sort', 'top');");
+    }
+
+    @Test
+    void subscribePopoverAssetsPresent() throws Exception {
+        String html = mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(html).contains("/subscribe.js");
+        assertThat(html).contains("id=\"subscribe-popover\"");
+        assertThat(html).contains("data-feed=\"/feed/trading.xml\"");
+        assertThat(html).doesNotContain("business-markets");
+
+        String js = mockMvc.perform(get("/subscribe.js"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(js).contains("feedly.com/i/subscription/feed/");
     }
 
     @Test

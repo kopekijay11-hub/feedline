@@ -162,22 +162,23 @@
                 <div>
                   <p class="eyebrow">Subscribe</p>
                   <h2 id="subscribe-title">RSS feeds</h2>
-                  <p class="panel-help">Subscribe in any RSS reader. One feed per category, plus an all-items feed and an OPML import.</p>
+                  <p class="panel-help">Choose a feed for subscribe options: copy its link, open it in a reader, or preview its latest items here.</p>
                 </div>
               </div>
-              <div id="subscribe-popover-hook" class="subscribe-links">
-                <a href="/feed/all.xml">All items</a>
-                <a href="/feed/world.xml">World</a>
-                <a href="/feed/business-markets.xml">Business &amp; Markets</a>
-                <a href="/feed/canada.xml">Canada</a>
-                <a href="/feed/united-states.xml">United States</a>
-                <a href="/feed/europe.xml">Europe</a>
-                <a href="/feed/asia-pacific.xml">Asia-Pacific</a>
-                <a href="/feed/technology.xml">Technology</a>
-                <a href="/feed/official-releases.xml">Official Releases</a>
-                <a href="/feed/company-news.xml">Company News</a>
-                <a href="/feed/index.opml">Import all (OPML)</a>
-              </div>
+              <div id="subscribe-links" class="subscribe-links">
+  <button type="button" class="feed-row" data-feed="/feed/all.xml" data-name="All items">All items</button>
+  <button type="button" class="feed-row" data-feed="/feed/world.xml" data-name="World">World</button>
+  <button type="button" class="feed-row" data-feed="/feed/trading.xml" data-name="Trading">Trading</button>
+  <button type="button" class="feed-row" data-feed="/feed/canada.xml" data-name="Canada">Canada</button>
+  <button type="button" class="feed-row" data-feed="/feed/united-states.xml" data-name="United States">United States</button>
+  <button type="button" class="feed-row" data-feed="/feed/europe.xml" data-name="Europe">Europe</button>
+  <button type="button" class="feed-row" data-feed="/feed/asia-pacific.xml" data-name="Asia-Pacific">Asia-Pacific</button>
+  <button type="button" class="feed-row" data-feed="/feed/technology.xml" data-name="Technology">Technology</button>
+  <button type="button" class="feed-row" data-feed="/feed/official-releases.xml" data-name="Official Releases">Official Releases</button>
+  <button type="button" class="feed-row" data-feed="/feed/company-news.xml" data-name="Company News">Company News</button>
+  <button type="button" class="feed-row" data-feed="/feed/index.opml" data-name="Import all (OPML)">Import all (OPML)</button>
+</div>
+<div id="subscribe-popover" class="subscribe-popover hidden" role="dialog" aria-label="Subscribe options"></div>
             </section>
      </main>
     </div>
@@ -303,5 +304,6 @@
   </div>
   <script src="/ops.js" defer></script>
   <script src="/view.js" defer></script>
+  <script src="/subscribe.js" defer></script>
 </body>
 </html>
