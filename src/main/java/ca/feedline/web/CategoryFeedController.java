@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -49,6 +50,13 @@ public class CategoryFeedController {
         return categoryFeedService.bySlug(category)
                 .map(cf -> feed(request, cf.name(), cf.sourceIds()))
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping(value = "/feed/business-markets.xml")
+    public ResponseEntity<Void> businessMarketsRedirect() {
+        return ResponseEntity.status(HttpStatus.MOVED_PERMANENTLY)
+                .location(URI.create("/feed/trading.xml"))
+                .build();
     }
 
     @GetMapping(value = "/feed/index.opml", produces = "application/xml")

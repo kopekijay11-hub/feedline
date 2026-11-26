@@ -49,8 +49,10 @@ public class SourceRegistryInitializer implements ApplicationRunner {
                 if (inserted > 0) {
                     // New row inserted, fetch it to log the ID
                     Optional<FeedSource> created = feedSources.findByUrl(sourceConfig.getUrl());
-                    created.ifPresent(source ->
-                        log.info("Registered feed source {} (id={})", source.getUrl(), source.getId()));
+                    created.ifPresent(source -> {
+                        source.setCadenceClass(sourceConfig.getCadenceClass());
+                        log.info("Registered feed source {} (id={})", source.getUrl(), source.getId());
+                    });
                 } else {
                     // Concurrent insert won the race; fetch existing and sync metadata
                     Optional<FeedSource> existing = feedSources.findByUrl(sourceConfig.getUrl());
@@ -63,6 +65,10 @@ public class SourceRegistryInitializer implements ApplicationRunner {
                         }
                         if (source.isEnabled() != sourceConfig.isEnabled()) {
                             source.setEnabled(sourceConfig.isEnabled());
+                            changed = true;
+                        }
+                        if (!sourceConfig.getCadenceClass().equals(source.getCadenceClass())) {
+                            source.setCadenceClass(sourceConfig.getCadenceClass());
                             changed = true;
                         }
                         if (changed) {

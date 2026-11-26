@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 
 /**
@@ -63,6 +64,15 @@ public class FeedSource {
 
     @Column(name = "last_new_item_at")
     private Instant lastNewItemAt;
+
+    @Transient
+    private String cadenceClass;
+
+    @Transient
+    private String cadence;
+
+    @Transient
+    private String frequencyClass;
 
     @Column(name = "next_poll_at")
     private Instant nextPollAt;
@@ -183,6 +193,45 @@ public class FeedSource {
 
     public void setLastNewItemAt(Instant lastNewItemAt) {
         this.lastNewItemAt = lastNewItemAt;
+    }
+
+    public String getCadenceClass() {
+        if (cadenceClass == null || cadenceClass.isBlank()) {
+            if (cadence != null && !cadence.isBlank()) {
+                return cadence;
+            }
+            if (frequencyClass != null && !frequencyClass.isBlank()) {
+                return frequencyClass;
+            }
+            return "daily";
+        }
+        return cadenceClass;
+    }
+
+    public void setCadenceClass(String cadenceClass) {
+        this.cadenceClass = cadenceClass;
+    }
+
+    public String getCadence() {
+        return getCadenceClass();
+    }
+
+    public void setCadence(String cadence) {
+        this.cadence = cadence;
+        if (cadence != null && !cadence.isBlank()) {
+            this.cadenceClass = cadence;
+        }
+    }
+
+    public String getFrequencyClass() {
+        return getCadenceClass();
+    }
+
+    public void setFrequencyClass(String frequencyClass) {
+        this.frequencyClass = frequencyClass;
+        if (frequencyClass != null && !frequencyClass.isBlank()) {
+            this.cadenceClass = frequencyClass;
+        }
     }
 
     public Instant getNextPollAt() {

@@ -666,6 +666,10 @@ public class FeedProperties {
         private String name;
         private String url;
         private boolean enabled = true;
+        private String cadenceClass = "daily";
+        private String cadence;
+        private String frequencyClass;
+        private List<String> tags;
 
         public Source() {
         }
@@ -701,6 +705,56 @@ public class FeedProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public String getCadenceClass() {
+            if (cadenceClass.isBlank()) {
+                if (cadence != null && !cadence.isBlank()) {
+                    return cadence;
+                }
+                if (frequencyClass != null && !frequencyClass.isBlank()) {
+                    return frequencyClass;
+                }
+                return "daily";
+            }
+            return cadenceClass;
+        }
+
+        public void setCadenceClass(String cadenceClass) {
+            this.cadenceClass = cadenceClass;
+        }
+
+        public String getCadence() {
+            return getCadenceClass();
+        }
+
+        public void setCadence(String cadence) {
+            this.cadence = cadence;
+            if (cadence != null && !cadence.isBlank()) {
+                this.cadenceClass = cadence;
+            }
+        }
+
+        public String getFrequencyClass() {
+            return getCadenceClass();
+        }
+
+        public void setFrequencyClass(String frequencyClass) {
+            this.frequencyClass = frequencyClass;
+            if (frequencyClass != null && !frequencyClass.isBlank()) {
+                this.cadenceClass = frequencyClass;
+            }
+        }
+
+        public List<String> getTags() {
+            if (tags == null) {
+                return null;
+            }
+            return java.util.Collections.unmodifiableList(tags);
+        }
+
+        public void setTags(List<String> tags) {
+            this.tags = tags == null ? null : new java.util.ArrayList<>(tags);
         }
     }
 }
