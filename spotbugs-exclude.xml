@@ -74,6 +74,22 @@
     <Bug pattern="EI_EXPOSE_REP2"/>
   </Match>
 
+  <!-- EI_EXPOSE_REP2: injected Spring collaborators. -->
+  <Match>
+    <Class name="ca.feedline.service.CategoryFeedService"/>
+    <Method name="&lt;init&gt;"/>
+    <Bug pattern="EI_EXPOSE_REP2"/>
+  </Match>
+
+  <!-- EI_EXPOSE_REP / EI_EXPOSE_REP2: category feed view records expose immutable-by-copy lists. -->
+  <Match>
+    <Class name="ca.feedline.service.CategoryFeedService$CategoryFeed"/>
+    <Or>
+      <Bug pattern="EI_EXPOSE_REP"/>
+      <Bug pattern="EI_EXPOSE_REP2"/>
+    </Or>
+  </Match>
+
   <!-- EI_EXPOSE_REP2: health collaborators are injected Spring services. -->
   <Match>
     <Class name="ca.feedline.health.PollCycleHeartbeatIndicator"/>

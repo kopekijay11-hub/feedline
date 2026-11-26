@@ -126,6 +126,23 @@ Key environment variables:
 
 The nine configured sources are listed in `src/main/resources/application.yml` (BBC News World, The Verge, Yahoo News Top Stories, Bloomberg Markets, Investing.com News, FXStreet News, Federal Reserve Press Releases, Bank of Canada Press Releases, CNBC Top News). Sources that were considered and refused are documented in [docs/rejected-sources.md](docs/rejected-sources.md).
 
+## Subscribe
+
+Feedline republishes merged RSS 2.0 feeds, one per category plus an all-items feed:
+
+- `/feed/all.xml`
+- `/feed/world.xml`
+- `/feed/business-markets.xml`
+- `/feed/canada.xml`
+- `/feed/united-states.xml`
+- `/feed/europe.xml`
+- `/feed/asia-pacific.xml`
+- `/feed/technology.xml`
+- `/feed/official-releases.xml`
+- `/feed/company-news.xml`
+
+Import every subscription at once with `/feed/index.opml`.
+
 ## Development
 
 ```bash

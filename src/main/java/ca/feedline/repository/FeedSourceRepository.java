@@ -19,6 +19,8 @@ public interface FeedSourceRepository extends JpaRepository<FeedSource, Long> {
 
     Optional<FeedSource> findByUrl(String url);
 
+    Optional<FeedSource> findByName(String name);
+
     /**
      * Inserts a new feed source if the URL does not already exist.
      * Uses PostgreSQL {@code ON CONFLICT (url) DO NOTHING} to avoid
