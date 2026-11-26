@@ -43,7 +43,7 @@ Items are published to the Kafka topic `feedline.items.ingested` by the transact
 
 - idempotence: on (`enable.idempotence: true`)
 - acks: all
-- `max.in.flight.requests.per.connection`: not set in `application.yml` — framework default (1 when idempotence is enabled; 5 otherwise)
+- `max.in.flight.requests.per.connection`: not set in `application.yml` — Kafka default 5 (idempotence permits at most 5 while preserving per-partition order)
 
 The honest ordering claim: ordering is per-partition only. Events sharing a key (`sourceId:guid`) keep their order; no global ordering across the topic is claimed.
 

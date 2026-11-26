@@ -92,8 +92,7 @@ src/main/resources/application.yml (spring.kafka.producer):
 - acks: all
 - properties.enable.idempotence: true
 - properties.max.in.flight.requests.per.connection: ABSENT from
-  application.yml -> framework default (1 when idempotence is enabled;
-  5 otherwise)
+  application.yml -> not set — Kafka default 5 (idempotence permits at most 5 while preserving per-partition order)
 - properties.delivery.timeout.ms, request.timeout.ms: 2000, retries: 10
 
 Added a short "Messaging" paragraph under the README messaging area
@@ -101,8 +100,7 @@ Added a short "Messaging" paragraph under the README messaging area
 
 - idempotence: on (enable.idempotence: true)
 - acks: all
-- max.in.flight.requests.per.connection: not set — framework default
-  (1 with idempotence enabled; 5 otherwise)
+- max.in.flight.requests.per.connection: not set — Kafka default 5 (idempotence permits at most 5 while preserving per-partition order)
 - honest claim: ordering is per-partition only; events sharing a key
   (sourceId:guid) keep their order; no global ordering is claimed.
 
