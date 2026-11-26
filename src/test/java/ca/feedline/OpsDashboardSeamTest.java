@@ -86,6 +86,19 @@ class OpsDashboardSeamTest {
     }
 
     @Test
+    void viewSwitchingAssetsPresent() throws Exception {
+        String html = mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(html).contains("/view.js");
+
+        String viewJs = mockMvc.perform(get("/view.js"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(viewJs).contains("feedline.view");
+    }
+
+    @Test
     void opsJsAddsSortTopWhenQueryPresent() throws Exception {
         String js = mockMvc.perform(get("/ops.js"))
                 .andExpect(status().isOk())
