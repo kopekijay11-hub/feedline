@@ -38,7 +38,7 @@ Base: `8bd62611a521794bc23469174913ab1ae8837d94`
 - unknown slug: HTTP 404
 
 ## Verification
-Verify of record: `mvn clean verify` on a clean tree at committed branch tip `635d212317c82b7ca32676f78c07cd2569e2ea94`, with `git status --short` EMPTY before and after. Surefire verdict: `Tests run: 236, Failures: 0, Errors: 0, Skipped: 0`. SpotBugs verdict: `BugInstance size is 0`, `Error size is 0`, `No errors/warnings found`. Result: `BUILD SUCCESS`. Total time: `04:25 min`.
+Verify of record: `mvn clean verify` on a clean tree at committed branch tip `0ead1ee651298807b9bc40bc417b1e49af626625`, with `git status --short` EMPTY before and after. Surefire verdict: `Tests run: 236, Failures: 0, Errors: 0, Skipped: 0`. SpotBugs verdict: `BugInstance size is 0`, `Error size is 0`, `No errors/warnings found`. Result: `BUILD SUCCESS`. Total time: `04:49 min`.
 
 ## Part 2
 `ops.js` keeps the admin key in browser memory only and clears it explicitly; `index.html` provides the `admin-key` password input with placeholder `X-Admin-Token`. The standing static-content assertion is in `OpsDashboardSeamTest.staticAssetsArePublic()`, which asserts `js` contains `X-Admin-Token` and does not contain the dev token. No new test was required.
