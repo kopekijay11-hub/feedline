@@ -303,10 +303,13 @@
       return true;
      } catch (err) {
        const closed = adminClosedMessage(err);
-      if (closed) {
+      ui.outboxPending.textContent = '\u2014';
+      ui.outboxPublished.textContent = '\u2014';
+      ui.outboxPoison.textContent = '\u2014';
+      if (err.status === 401 || err.status === 403) {
+        ui.adminSummary.textContent = 'Admin key required to view outbox stats';
+      } else if (closed) {
         ui.adminSummary.textContent = closed;
-      } else if (err.status === 401 || err.status === 403) {
-        ui.adminSummary.textContent = 'Admin token required for outbox stats/controls';
       }
       if (state.adminKey && !(err.status === 401 || err.status === 403)) {
         showError(ui.healthError, err);
@@ -952,7 +955,7 @@
     ui.outboxPending.textContent = '—';
     ui.outboxPublished.textContent = '—';
     ui.outboxPoison.textContent = '—';
-    ui.adminSummary.textContent = 'Admin token required for outbox stats/controls';
+    ui.adminSummary.textContent = 'Admin key required to view outbox stats';
     ui.poisonBody.innerHTML = '<tr><td colspan="6" class="empty">Enter admin key and load poison entries.</td></tr>';
     clearError(ui.adminError);
     setPanelState('admin', 'empty', 'Empty');
