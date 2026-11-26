@@ -23,5 +23,5 @@ SpotBugs: No bugs found.
 
 ## B1d — top stories by recency
 - code commit: 31530af
-- tests: none added (existing none pinned order)
-- verify: running/not completed
+- tests: recencyBeatsSize, agencyCountBreaksTimeTie
+- verify: Tests run: 246, Failures: 0, Errors: 0, Skipped: 0; BUILD SUCCESS
