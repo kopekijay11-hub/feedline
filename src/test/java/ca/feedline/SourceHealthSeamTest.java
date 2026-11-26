@@ -421,4 +421,23 @@ class SourceHealthSeamTest {
         assertThat(reloaded.getLeaseUntil()).isNull();
         assertThat(poller.claimDueSources()).isEmpty();
     }
+
+    @Test
+    void lowFrequencyNineteenDaysIsCurrent() {
+        ca.feedline.domain.FeedSource source = new ca.feedline.domain.FeedSource();
+        Instant now = Instant.now();
+        source.setCadenceClass("low-frequency-official");
+        source.setLastNewItemAt(now.minus(java.time.Duration.ofDays(19)));
+        assertThat(health.contentFreshness(source, now)).isEqualTo("CURRENT");
+    }
+
+    @Test
+    void dailyNineteenDaysIsStale() {
+        ca.feedline.domain.FeedSource source = new ca.feedline.domain.FeedSource();
+        Instant now = Instant.now();
+        source.setCadenceClass("daily");
+        source.setLastNewItemAt(now.minus(java.time.Duration.ofDays(19)));
+        assertThat(health.contentFreshness(source, now)).isEqualTo("STALE");
+    }
+
 }
