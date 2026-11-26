@@ -36,3 +36,8 @@ git status EMPTY before/after: yes (after commit).
 Code commit: dd9d37a
 Base SHA: b45fa8a
 mvn clean verify: BUILD SUCCESS; Tests run: 245, Failures: 0, Errors: 0, Skipped: 0
+
+## B1b-fix — subscribe local note
+
+Code commit: ff6d03c
+Tests: 248, 0 failures, SpotBugs 0

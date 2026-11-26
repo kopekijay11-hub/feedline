@@ -11,6 +11,14 @@
     return window.location.origin + feedPath;
   }
 
+  function isPublicOrigin() {
+    var h = window.location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return false;
+    if (/^10\./.test(h) || /^192\.168\./.test(h) ||
+        /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(h)) return false;
+    return true;
+  }
+
   function close() {
     if (popover) { popover.classList.add('hidden'); popover.innerHTML = ''; }
   }
@@ -62,12 +70,17 @@
     });
     popover.appendChild(copy);
     if (row.getAttribute('data-feed').indexOf('.opml') < 0) {
-      var feedly = el('a', 'btn btn-secondary', 'Open in Feedly');
-      feedly.href = 'https://feedly.com/i/subscription/feed/' +
-        encodeURIComponent(url);
-      feedly.target = '_blank';
-      feedly.rel = 'noopener';
-      popover.appendChild(feedly);
+      if (isPublicOrigin()) {
+        var feedly = el('a', 'btn btn-secondary', 'Open in Feedly');
+        feedly.href = 'https://feedly.com/i/subscription/feed/' +
+          encodeURIComponent(url);
+        feedly.target = '_blank';
+        feedly.rel = 'noopener';
+        popover.appendChild(feedly);
+      } else {
+        popover.appendChild(el('p', 'muted',
+          'Cloud readers like Feedly cannot reach this local address — copy the link into a reader on this network.'));
+      }
       var box = el('div', 'popover-preview');
       popover.appendChild(box);
       preview(row.getAttribute('data-feed'), box);
