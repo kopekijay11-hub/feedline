@@ -24,6 +24,10 @@ SpotBugs: No bugs found.
 ## B1b — subscribe popover
 
 Code commit: 4cde478
-Raw totals: verify process died/hung before completion; not observed.
-SpotBugs verdict: not observed.
+Raw totals (operator-run verify, clean tree at 85c7cfc): Tests run: 245, Failures: 0, Errors: 0, Skipped: 0.
+SpotBugs: 0 bugs.
 git status EMPTY before/after: yes (after commit).
+## B1d — top stories by recency
+- code commit: 31530af
+- tests: recencyBeatsSize, agencyCountBreaksTimeTie
+- verify: Tests run: 246, Failures: 0, Errors: 0, Skipped: 0; BUILD SUCCESS

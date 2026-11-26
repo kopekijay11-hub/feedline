@@ -505,11 +505,19 @@ public class StoryClusterService {
             ));
         }
         out.sort((a, b) -> {
-            int cmp = Integer.compare(b.memberCount(), a.memberCount());
+            int cmp = b.lastSeenAt().compareTo(a.lastSeenAt());
             if (cmp != 0) {
                 return cmp;
             }
-            return b.lastSeenAt().compareTo(a.lastSeenAt());
+            cmp = Integer.compare(b.sourceNames().size(), a.sourceNames().size());
+            if (cmp != 0) {
+                return cmp;
+            }
+            cmp = Integer.compare(b.memberCount(), a.memberCount());
+            if (cmp != 0) {
+                return cmp;
+            }
+            return Long.compare(b.id(), a.id());
         });
         return out;
     }
