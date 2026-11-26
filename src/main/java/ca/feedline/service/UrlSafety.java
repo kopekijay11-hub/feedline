@@ -65,7 +65,7 @@ final class UrlSafety {
         InetAddress[] addresses = resolve(host);
         for (InetAddress address : addresses) {
             if (!isSafe(address)) {
-                throw new UnsafeUrlException("Blocked target address: " + address.getHostAddress());
+                throw new UnsafeUrlException("Blocked target address");
             }
         }
         return new ValidatedTarget(uri, addresses);
@@ -81,8 +81,7 @@ final class UrlSafety {
         }
         for (InetAddress address : current) {
             if (!isSafe(address)) {
-                throw new UnsafeUrlException("Blocked target address after DNS recheck: "
-                        + address.getHostAddress());
+                throw new UnsafeUrlException("Blocked target address after DNS recheck");
             }
         }
     }

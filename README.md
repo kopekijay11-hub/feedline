@@ -10,7 +10,7 @@ Feedline is a small, complete Java/Spring Boot content-ingestion service: a sche
 
 ## What this is
 
-Scheduled RSS/Atom ingestion, dedupe, PostgreSQL, REST API, Kafka via transactional outbox, ops dashboard. Feedline polls a curated set of news, markets, and central-bank press-release feeds on a fixed delay, applies per-host politeness, conditional GET, redirects, retries, timeouts, and body caps, normalizes each entry into an `Item`, and stores it idempotently on `(source_id, guid)`. Items are queryable through `/api/v1/items` with keyset pagination and full-text search. Every newly stored item also lands in an `outbox_events` table and is relayed to the Kafka topic `feedline.items.ingested` by a separate relay, so the database write and the message publication stay consistent. A single-process service with no paid services, no cloud, and no API keys required to run it.
+Scheduled RSS/Atom ingestion, dedupe, PostgreSQL, REST API, Kafka via transactional outbox, ops dashboard. Feedline polls a curated set of news, markets, and central-bank press-release feeds on a fixed delay, applies per-host politeness, conditional GET, redirects, retries, timeouts, and body caps, normalizes each entry into an `Item`, and stores it idempotently on `(source_id, guid)`. Items without a feed-provided GUID receive a synthetic GUID: SHA-256 of link/title/published_at; collision resistance is assumed (audit B-07, accepted/open). Items are queryable through `/api/v1/items` with keyset pagination and full-text search. Every newly stored item also lands in an `outbox_events` table and is relayed to the Kafka topic `feedline.items.ingested` by a separate relay, so the database write and the message publication stay consistent. A single-process service with no paid services, no cloud, and no API keys required to run it.
 
 Who it is for: developers learning or demonstrating Spring Boot, JPA, Flyway, Kafka, and Testcontainers. What problem it solves: turning a set of public feeds into a queryable, deduplicated, event-emitting content store with an honest operations dashboard, end to end, in one runnable container stack.
 
@@ -36,6 +36,16 @@ flowchart LR
 ```
 
 Delivery is at-least-once: the relay publishes then marks the row published, so a crash between the Kafka ack and the state update can cause a duplicate on the next relay pass; consumers must dedupe on the event key.
+
+## Messaging
+
+Items are published to the Kafka topic `feedline.items.ingested` by the transactional outbox relay. Producer posture, as configured in `src/main/resources/application.yml`:
+
+- idempotence: on (`enable.idempotence: true`)
+- acks: all
+- `max.in.flight.requests.per.connection`: not set in `application.yml` — framework default (1 when idempotence is enabled; 5 otherwise)
+
+The honest ordering claim: ordering is per-partition only. Events sharing a key (`sourceId:guid`) keep their order; no global ordering across the topic is claimed.
 
 ## Install and setup (quickstart)
 

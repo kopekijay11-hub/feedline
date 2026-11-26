@@ -7,6 +7,8 @@ import java.net.URI;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class UrlSafetyTest {
@@ -61,6 +63,17 @@ class UrlSafetyTest {
         UrlSafety.ValidatedTarget validated = guard.validate(URI.create("http://example.test/feed.xml"));
 
         assertThrows(UrlSafety.UnsafeUrlException.class, () -> guard.assertUnchanged(validated));
+    }
+
+    @Test
+    void blockedAddressMessagesNameNoTopology() {
+        UrlSafety strict = new UrlSafety(false);
+
+        UrlSafety.UnsafeUrlException direct = assertThrows(UrlSafety.UnsafeUrlException.class,
+                () -> strict.validate(URI.create("http://10.0.0.1/feed.xml")));
+        assertEquals("Blocked target address", direct.getMessage());
+        assertFalse(direct.getMessage().contains("10.0.0.1"));
+        assertFalse(direct.getMessage().contains("feed"));
     }
 
     @Test
