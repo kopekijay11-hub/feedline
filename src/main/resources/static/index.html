@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Feedline Ops Dashboard</title>
   <link rel="stylesheet" href="/ops.css">
+  <link rel="alternate" type="application/rss+xml" title="All" href="/feed/all.xml">
+  <link rel="alternate" type="application/rss+xml" title="Trading" href="/feed/trading.xml">
+  <link rel="alternate" type="application/rss+xml" title="World" href="/feed/world.xml">
+  <link rel="alternate" type="application/rss+xml" title="Canada" href="/feed/canada.xml">
+  <link rel="alternate" type="application/rss+xml" title="United States" href="/feed/united-states.xml">
+  <link rel="alternate" type="application/rss+xml" title="Europe" href="/feed/europe.xml">
+  <link rel="alternate" type="application/rss+xml" title="Asia-Pacific" href="/feed/asia-pacific.xml">
+  <link rel="alternate" type="application/rss+xml" title="Technology" href="/feed/technology.xml">
+  <link rel="alternate" type="application/rss+xml" title="Official Releases" href="/feed/official-releases.xml">
+  <link rel="alternate" type="application/rss+xml" title="Company News" href="/feed/company-news.xml">
 </head>
 <body>
   <div class="app">
@@ -16,6 +26,10 @@
           <p class="subtitle">Operations dashboard &middot; works offline &middot; no external dependencies</p>
         </div>
       </div>
+      <nav class="view-switch" role="tablist" aria-label="View">
+        <button id="view-reader-btn" class="switch active" role="tab" aria-selected="true" data-view="reader">Reader</button>
+        <button id="view-ops-btn" class="switch" role="tab" aria-selected="false" data-view="ops">Ops</button>
+      </nav>
       <div class="topbar-controls">
         <label class="field compact">
           <span>Admin server key (in memory only)</span>
@@ -39,248 +53,255 @@
       <div id="overall-status-detail" class="status-detail">Loading sources and health checks&hellip;</div>
     </section>
 
-    <main class="grid">
-      <section class="panel panel-wide" aria-labelledby="subscribe-title" data-panel="subscribe">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Subscribe</p>
-            <h2 id="subscribe-title">RSS feeds</h2>
-            <p class="panel-help">Subscribe in any RSS reader. One feed per category, plus an all-items feed and an OPML import.</p>
-          </div>
-        </div>
-        <div class="subscribe-links">
-          <a href="/feed/all.xml">All items</a>
-          <a href="/feed/world.xml">World</a>
-          <a href="/feed/business-markets.xml">Business &amp; Markets</a>
-          <a href="/feed/canada.xml">Canada</a>
-          <a href="/feed/united-states.xml">United States</a>
-          <a href="/feed/europe.xml">Europe</a>
-          <a href="/feed/asia-pacific.xml">Asia-Pacific</a>
-          <a href="/feed/technology.xml">Technology</a>
-          <a href="/feed/official-releases.xml">Official Releases</a>
-          <a href="/feed/company-news.xml">Company News</a>
-          <a href="/feed/index.opml">Import all (OPML)</a>
-        </div>
-      </section>
-
-      <section class="panel panel-wide" aria-labelledby="health-title" data-panel="health">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">System</p>
-            <h2 id="health-title">System &amp; Outbox Health</h2>
-            <p class="panel-help">Is the service running, and are queued messages (the outbox) being delivered?</p>
-          </div>
-          <div class="panel-meta">
-            <span id="health-state" class="panel-state state-loading" role="status">Loading&hellip;</span>
-            <span id="health-updated" class="muted">Not loaded</span>
-          </div>
-        </div>
-        <div class="stats" aria-label="Health numbers">
-          <div class="stat">
-            <span class="stat-label">Service health (system check)</span>
-            <span id="actuator-status" class="stat-value">—</span>
-            <span id="actuator-detail" class="stat-detail muted">GET /actuator/health</span>
-          </div>
-          <div class="stat stat-primary">
-            <span class="stat-label">Messages waiting (pending)</span>
-            <span id="outbox-pending" class="stat-value">—</span>
-            <span class="stat-detail muted">Unpublished outbox rows</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">Messages delivered (published)</span>
-            <span id="outbox-published" class="stat-value">—</span>
-            <span class="stat-detail muted">Delivered rows</span>
-          </div>
-          <div class="stat stat-primary">
-            <span class="stat-label">Poisoned messages</span>
-            <span id="outbox-poison" class="stat-value">—</span>
-            <span class="stat-detail muted">Needs operator action</span>
-          </div>
-        </div>
-        <div id="health-error" class="inline-error hidden" role="alert"></div>
-      </section>
-
-      <section class="panel panel-wide" aria-labelledby="sources-title" data-panel="sources">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Ingestion</p>
-            <h2 id="sources-title">Feed Sources</h2>
-            <p class="panel-help">Are feeds being polled successfully? A source needs attention when it is degraded, backing off, or stale.</p>
-          </div>
-          <div class="panel-meta">
-            <span id="sources-state" class="panel-state state-loading" role="status">Loading&hellip;</span>
-            <span id="sources-summary" class="muted">GET /api/v1/sources/health</span>
-          </div>
-        </div>
-        <div class="table-wrap" tabindex="0">
-          <table>
-            <thead>
-              <tr>
-                <th>Source</th>
-                <th>Live grade</th>
-                <th>Status</th>
-                <th>Last Success</th>
-                <th>Failures</th>
-                <th>Backoff / Next Poll</th>
-                <th>Skipped</th>
-                <th>Diagnostics</th>
-              </tr>
-            </thead>
-            <tbody id="sources-body">
-              <tr><td colspan="8" class="empty">Loading sources&hellip;</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div id="sources-error" class="inline-error hidden" role="alert"></div>
-      </section>
-
+    <section id="status-strip" class="status-strip" role="status" aria-live="polite"></section>
+    <div id="view-reader" class="view" data-view="reader">
+     <main class="grid">
       <section class="panel panel-wide" aria-labelledby="clusters-title" data-panel="clusters">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Story Clustering</p>
-            <h2 id="clusters-title">Top stories — same story, many sources</h2>
-            <p class="panel-help">Clusters group items from different sources that look like the same story. Click a row to expand its members.</p>
-          </div>
-          <div class="panel-meta">
-            <span id="clusters-state" class="panel-state state-empty" role="status">Empty</span>
-            <span id="clusters-summary" class="muted">GET /api/v1/clusters?sinceHours=48</span>
-          </div>
-        </div>
-        <div id="clusters-error" class="inline-error hidden" role="alert"></div>
-        <div class="table-wrap" tabindex="0">
-          <table>
-            <thead>
-              <tr>
-                <th>Story</th>
-                <th>Reports</th>
-                <th>Sources</th>
-                <th>Last seen</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="clusters-body">
-              <tr><td colspan="5" class="empty">Loading clusters&hellip;</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Story Clustering</p>
+                  <h2 id="clusters-title">Top stories — same story, many sources</h2>
+                  <p class="panel-help">Clusters group items from different sources that look like the same story. Click a row to expand its members.</p>
+                </div>
+                <div class="panel-meta">
+                  <span id="clusters-state" class="panel-state state-empty" role="status">Empty</span>
+                  <span id="clusters-summary" class="muted">GET /api/v1/clusters?sinceHours=48</span>
+                </div>
+              </div>
+              <div id="clusters-error" class="inline-error hidden" role="alert"></div>
+              <div class="table-wrap" tabindex="0">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Story</th>
+                      <th>Reports</th>
+                      <th>Sources</th>
+                      <th>Last seen</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="clusters-body">
+                    <tr><td colspan="5" class="empty">Loading clusters&hellip;</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+      
       <section class="panel panel-wide" aria-labelledby="items-title" data-panel="items">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Explorer</p>
-            <h2 id="items-title">Point-in-Time Items</h2>
-            <p class="panel-help">Search the items that have been ingested. Links open only when they use http or https.</p>
-          </div>
-          <div class="panel-meta">
-            <span id="items-state" class="panel-state state-empty" role="status">Empty</span>
-            <span id="items-summary" class="muted">GET /api/v1/items</span>
-          </div>
-        </div>
-        <form id="items-form" class="filters">
-          <div class="field field-wide">
-            <span>Categories</span>
-            <div id="category-chips" class="chips" role="group" aria-label="News categories"></div>
-          </div>
-          <label class="field field-wide">
-            <span>Sources</span>
-            <select id="filter-sources" name="sources" multiple size="8" class="source-picker"></select>
-          </label>
-          <label class="field">
-            <span>Search (q)</span>
-            <input id="filter-q" name="q" placeholder="title or summary">
-          </label>
-          <label class="field">
-            <span>Fetched From (UTC ISO-8601)</span>
-            <input id="filter-from" name="fetchedFrom" placeholder="2026-11-21T00:00:00Z">
-          </label>
-          <label class="field">
-            <span>Fetched To (UTC ISO-8601)</span>
-            <input id="filter-to" name="fetchedTo" placeholder="2026-11-21T23:59:59Z">
-          </label>
-          <label class="field field-small">
-            <span>Size</span>
-            <input id="filter-size" name="size" inputmode="numeric" value="20">
-          </label>
-          <div class="filter-actions">
-            <button class="btn" type="submit">Query</button>
-            <button id="top-stories" class="btn btn-secondary" type="button" aria-pressed="false" title="All news ranked by how many outlets carry the story, most first">Top stories</button>
-            <button id="items-reset" class="btn btn-secondary" type="button">Reset window</button>
-          </div>
-        </form>
-        <div id="items-error" class="inline-error hidden" role="alert"></div>
-        <div class="table-wrap" tabindex="0">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Source</th>
-                <th>Title</th>
-                <th>Published</th>
-                <th>Fetched</th>
-                <th>Link</th>
-              </tr>
-            </thead>
-            <tbody id="items-body">
-              <tr><td colspan="6" class="empty">Run a query to load items.</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="pager">
-          <div id="items-page-meta" class="muted">No page loaded.</div>
-          <div class="pager-actions">
-            <button id="items-prev" class="btn btn-secondary" type="button" disabled>Previous</button>
-            <button id="items-next" class="btn btn-secondary" type="button" disabled>Next Page</button>
-          </div>
-        </div>
-      </section>
-
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Explorer</p>
+                  <h2 id="items-title">Point-in-Time Items</h2>
+                  <p class="panel-help">Search the items that have been ingested. Links open only when they use http or https.</p>
+                </div>
+                <div class="panel-meta">
+                  <span id="items-state" class="panel-state state-empty" role="status">Empty</span>
+                  <span id="items-summary" class="muted">GET /api/v1/items</span>
+                </div>
+              </div>
+              <form id="items-form" class="filters">
+                <div class="field field-wide">
+                  <span>Categories</span>
+                  <div id="category-chips" class="chips" role="group" aria-label="News categories"></div>
+                </div>
+                <label class="field field-wide">
+                  <span>Sources</span>
+                  <select id="filter-sources" name="sources" multiple size="8" class="source-picker"></select>
+                </label>
+                <label class="field">
+                  <span>Search (q)</span>
+                  <input id="filter-q" name="q" placeholder="title or summary">
+                </label>
+                <label class="field">
+                  <span>Fetched From (UTC ISO-8601)</span>
+                  <input id="filter-from" name="fetchedFrom" placeholder="2026-11-21T00:00:00Z">
+                </label>
+                <label class="field">
+                  <span>Fetched To (UTC ISO-8601)</span>
+                  <input id="filter-to" name="fetchedTo" placeholder="2026-11-21T23:59:59Z">
+                </label>
+                <label class="field field-small">
+                  <span>Size</span>
+                  <input id="filter-size" name="size" inputmode="numeric" value="20">
+                </label>
+                <div class="filter-actions">
+                  <button class="btn" type="submit">Query</button>
+                  <button id="top-stories" class="btn btn-secondary" type="button" aria-pressed="false" title="All news ranked by how many outlets carry the story, most first">Top stories</button>
+                  <button id="items-reset" class="btn btn-secondary" type="button">Reset window</button>
+                </div>
+              </form>
+              <div id="items-error" class="inline-error hidden" role="alert"></div>
+              <div class="table-wrap" tabindex="0">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Source</th>
+                      <th>Title</th>
+                      <th>Published</th>
+                      <th>Fetched</th>
+                      <th>Link</th>
+                    </tr>
+                  </thead>
+                  <tbody id="items-body">
+                    <tr><td colspan="6" class="empty">Run a query to load items.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="pager">
+                <div id="items-page-meta" class="muted">No page loaded.</div>
+                <div class="pager-actions">
+                  <button id="items-prev" class="btn btn-secondary" type="button" disabled>Previous</button>
+                  <button id="items-next" class="btn btn-secondary" type="button" disabled>Next Page</button>
+                </div>
+              </div>
+            </section>
+      
+      <section class="panel panel-wide" aria-labelledby="subscribe-title" data-panel="subscribe">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Subscribe</p>
+                  <h2 id="subscribe-title">RSS feeds</h2>
+                  <p class="panel-help">Subscribe in any RSS reader. One feed per category, plus an all-items feed and an OPML import.</p>
+                </div>
+              </div>
+              <div id="subscribe-popover-hook" class="subscribe-links">
+                <a href="/feed/all.xml">All items</a>
+                <a href="/feed/world.xml">World</a>
+                <a href="/feed/business-markets.xml">Business &amp; Markets</a>
+                <a href="/feed/canada.xml">Canada</a>
+                <a href="/feed/united-states.xml">United States</a>
+                <a href="/feed/europe.xml">Europe</a>
+                <a href="/feed/asia-pacific.xml">Asia-Pacific</a>
+                <a href="/feed/technology.xml">Technology</a>
+                <a href="/feed/official-releases.xml">Official Releases</a>
+                <a href="/feed/company-news.xml">Company News</a>
+                <a href="/feed/index.opml">Import all (OPML)</a>
+              </div>
+            </section>
+     </main>
+    </div>
+    <div id="view-ops" class="view hidden" data-view="ops">
+     <main class="grid">
+      <section class="panel panel-wide" aria-labelledby="health-title" data-panel="health">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">System</p>
+                  <h2 id="health-title">System &amp; Outbox Health</h2>
+                  <p class="panel-help">Is the service running, and are queued messages (the outbox) being delivered?</p>
+                </div>
+                <div class="panel-meta">
+                  <span id="health-state" class="panel-state state-loading" role="status">Loading&hellip;</span>
+                  <span id="health-updated" class="muted">Not loaded</span>
+                </div>
+              </div>
+              <div class="stats" aria-label="Health numbers">
+                <div class="stat">
+                  <span class="stat-label">Service health (system check)</span>
+                  <span id="actuator-status" class="stat-value">—</span>
+                  <span id="actuator-detail" class="stat-detail muted">GET /actuator/health</span>
+                </div>
+                <div class="stat stat-primary">
+                  <span class="stat-label">Messages waiting (pending)</span>
+                  <span id="outbox-pending" class="stat-value">—</span>
+                  <span class="stat-detail muted">Unpublished outbox rows</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-label">Messages delivered (published)</span>
+                  <span id="outbox-published" class="stat-value">—</span>
+                  <span class="stat-detail muted">Delivered rows</span>
+                </div>
+                <div class="stat stat-primary">
+                  <span class="stat-label">Poisoned messages</span>
+                  <span id="outbox-poison" class="stat-value">—</span>
+                  <span class="stat-detail muted">Needs operator action</span>
+                </div>
+              </div>
+              <div id="health-error" class="inline-error hidden" role="alert"></div>
+            </section>
+      
+      <section class="panel panel-wide" aria-labelledby="sources-title" data-panel="sources">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Ingestion</p>
+                  <h2 id="sources-title">Feed Sources</h2>
+                  <p class="panel-help">Are feeds being polled successfully? A source needs attention when it is degraded, backing off, or stale.</p>
+                </div>
+                <div class="panel-meta">
+                  <span id="sources-state" class="panel-state state-loading" role="status">Loading&hellip;</span>
+                  <span id="sources-summary" class="muted">GET /api/v1/sources/health</span>
+                </div>
+              </div>
+              <div class="table-wrap" tabindex="0">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Source</th>
+                      <th>Live grade</th>
+                      <th>Status</th>
+                      <th>Last Success</th>
+                      <th>Failures</th>
+                      <th>Backoff / Next Poll</th>
+                      <th>Skipped</th>
+                      <th>Diagnostics</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sources-body">
+                    <tr><td colspan="8" class="empty">Loading sources&hellip;</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div id="sources-error" class="inline-error hidden" role="alert"></div>
+            </section>
+      
       <section class="panel panel-wide" aria-labelledby="admin-title" data-panel="admin">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Admin</p>
-            <h2 id="admin-title">Outbox Controls</h2>
-            <p class="panel-help">Manual repair tools for poisoned messages (the outbox). Admin actions require the server key FEED_ADMIN_API_KEY, set on the server. If the server has no key configured, the admin API is closed by design and these calls return 401.</p>
-          </div>
-          <div class="panel-meta">
-            <span id="admin-state" class="panel-state state-empty" role="status">Empty</span>
-            <span id="admin-summary" class="muted">Token-gated /api/v1/admin/outbox/**</span>
-          </div>
-        </div>
-        <div class="admin-actions">
-          <label class="field compact">
-            <span>Topic filter</span>
-            <input id="poison-topic" placeholder="optional topic">
-          </label>
-          <label class="field compact field-small">
-            <span>Limit</span>
-            <input id="poison-limit" inputmode="numeric" value="50">
-          </label>
-          <button id="poison-refresh" class="btn btn-secondary" type="button">Load Poison</button>
-          <button id="replay-batch" class="btn btn-warn" type="button">Replay Batch</button>
-          <button id="cleanup-published" class="btn btn-danger" type="button">Cleanup Published</button>
-        </div>
-        <div id="admin-error" class="inline-error hidden" role="alert"></div>
-        <div class="table-wrap" tabindex="0">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Topic / Key</th>
-                <th>Attempts</th>
-                <th>Poisoned</th>
-                <th>Last Error</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="poison-body">
-              <tr><td colspan="6" class="empty">Enter admin key and load poison entries.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </main>
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Admin</p>
+                  <h2 id="admin-title">Outbox Controls</h2>
+                  <p class="panel-help">Manual repair tools for poisoned messages (the outbox). Admin actions require the server key FEED_ADMIN_API_KEY, set on the server. If the server has no key configured, the admin API is closed by design and these calls return 401.</p>
+                </div>
+                <div class="panel-meta">
+                  <span id="admin-state" class="panel-state state-empty" role="status">Empty</span>
+                  <span id="admin-summary" class="muted">Token-gated /api/v1/admin/outbox/**</span>
+                </div>
+              </div>
+              <div class="admin-actions">
+                <label class="field compact">
+                  <span>Topic filter</span>
+                  <input id="poison-topic" placeholder="optional topic">
+                </label>
+                <label class="field compact field-small">
+                  <span>Limit</span>
+                  <input id="poison-limit" inputmode="numeric" value="50">
+                </label>
+                <button id="poison-refresh" class="btn btn-secondary" type="button">Load Poison</button>
+                <button id="replay-batch" class="btn btn-warn" type="button">Replay Batch</button>
+                <button id="cleanup-published" class="btn btn-danger" type="button">Cleanup Published</button>
+              </div>
+              <div id="admin-error" class="inline-error hidden" role="alert"></div>
+              <div class="table-wrap" tabindex="0">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Topic / Key</th>
+                      <th>Attempts</th>
+                      <th>Poisoned</th>
+                      <th>Last Error</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="poison-body">
+                    <tr><td colspan="6" class="empty">Enter admin key and load poison entries.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+     </main>
+   </div>
   </div>
   <script src="/ops.js" defer></script>
+  <script src="/view.js" defer></script>
 </body>
 </html>

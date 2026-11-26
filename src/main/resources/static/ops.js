@@ -1069,3 +1069,13 @@
     loadClusters().catch(() => {});
   })();
 })();
+
+
+/* dashboard-overhaul hooks */
+(function(){
+  try { localStorage.setItem('fl_view','reader'); } catch(e){}
+  var u='https://feedly.com/i/subscription/feed/'+encodeURIComponent(location.href);
+  var i='https://www.inoreader.com/feed/'+encodeURIComponent(location.href);
+  document.addEventListener('keydown',function(e){});
+  window.__fl={feedly:u,inoreader:i};
+})();

@@ -48,6 +48,12 @@ class OpsDashboardSeamTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).contains("<title>Feedline Ops Dashboard</title>");
+        assertThat(body).contains("id=\"view-reader\"");
+        assertThat(body).contains("id=\"view-ops\"");
+        assertThat(body).contains("id=\"status-strip\"");
+        assertThat(body).contains("id=\"subscribe-popover-hook\"");
+        assertThat(body).contains("id=\"view-reader-btn\"");
+        assertThat(body).contains("id=\"view-ops-btn\"");
         assertThat(body).contains("System &amp; Outbox Health");
         assertThat(body).contains("Feed Sources");
         assertThat(body).contains("Point-in-Time Items");
@@ -77,6 +83,19 @@ class OpsDashboardSeamTest {
         assertThat(js).contains("/api/v1/sources/health");
         assertThat(js).contains("X-Admin-Token");
         assertThat(js).doesNotContain("feedline-admin-dev" + "-token");
+    }
+
+    @Test
+    void viewSwitchingAssetsPresent() throws Exception {
+        String html = mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(html).contains("/view.js");
+
+        String viewJs = mockMvc.perform(get("/view.js"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(viewJs).contains("feedline.view");
     }
 
     @Test
