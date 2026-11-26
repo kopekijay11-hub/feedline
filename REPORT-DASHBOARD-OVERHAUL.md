@@ -20,3 +20,8 @@ SpotBugs: No bugs found.
 - Verification (operator-run, clean tree at f63e69f, git
   status --short EMPTY before and after): Tests run: 244,
   Failures: 0, Errors: 0, Skipped: 0. SpotBugs: 0 bugs.
+
+## B1d — top stories by recency
+- code commit: 31530af
+- tests: none added (existing none pinned order)
+- verify: running/not completed
