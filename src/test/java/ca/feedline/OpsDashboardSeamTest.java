@@ -141,4 +141,14 @@ class OpsDashboardSeamTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith("application/json"));
     }
+    @Test
+    void categoryChipsAndExplorerWindowUpdated() throws Exception {
+        String js = mockMvc.perform(get("/ops.js"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(js).contains("const CATEGORY_ORDER = ['All', 'World', 'Trading'");
+        assertThat(js).doesNotContain("Business & Markets");
+        assertThat(js).contains("now.getTime() - 7 * 24 * 60 * 60 * 1000");
+    }
 }
