@@ -165,15 +165,17 @@ for tracked changes before and after (the only untracked entry is the
 pre-existing empty FETCH_HEAD, present before this job and not created
 by it; no cleanup deletions performed).
 
-Surefire verdict: PENDING (mvn clean verify to be run on the committed
-tip; suite expectation 236 + 3 new GuidScopingIntegrationTest tests =
-239, all green).
+Surefire verdict (verbatim): "Tests run: 240, Failures: 0, Errors: 0,
+Skipped: 0". Suite expectation met: 236 baseline + 1 UrlSafety test +
+3 GuidScopingIntegrationTest tests = 240, all green. BUILD SUCCESS.
 
-SpotBugs verdict: PENDING (failOnError=true; expectation 0 findings).
+SpotBugs verdict (verbatim): "BugInstance size is 0 / Error size is 0 /
+No errors/warnings found" (failOnError=true; 0 findings). BUILD SUCCESS.
 
 ------------------------------------------------------------
 PUSH PROOF
 ------------------------------------------------------------
 
-PENDING (push to origin/audit-residuals to follow; completion message
-will state local tip == origin/audit-residuals tip with full SHAs).
+PENDING — push to origin/audit-residuals to follow; the completion
+message will state local tip == origin/audit-residuals tip with full
+SHAs.
