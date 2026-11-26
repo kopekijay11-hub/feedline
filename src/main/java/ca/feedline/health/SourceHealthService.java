@@ -79,12 +79,60 @@ public class SourceHealthService {
         return threshold == null || threshold.isNegative() ? Duration.ofDays(7) : threshold;
     }
 
+    public Duration contentFreshnessThreshold(FeedSource source) {
+        String cadence = resolveCadence(source);
+        if (isLowFrequency(cadence)) {
+            return Duration.ofDays(35);
+        }
+        return contentFreshnessThreshold();
+    }
+
+    public Duration freshnessWindow(FeedSource source) {
+        return contentFreshnessThreshold(source);
+    }
+
+    public Duration freshnessThreshold(FeedSource source) {
+        return contentFreshnessThreshold(source);
+    }
+
+    private String resolveCadence(FeedSource source) {
+        if (source == null) {
+            return "daily";
+        }
+        String fromSource = source.getCadenceClass();
+        if (!fromSource.isBlank()) {
+            return fromSource;
+        }
+        if (config.getSources() != null) {
+            for (FeedProperties.Source cfg : config.getSources()) {
+                if (cfg == null) {
+                    continue;
+                }
+                if (cfg.getUrl() != null && cfg.getUrl().equals(source.getUrl())) {
+                    return cfg.getCadenceClass();
+                }
+                if (cfg.getName() != null && cfg.getName().equals(source.getName())) {
+                    return cfg.getCadenceClass();
+                }
+            }
+        }
+        return "daily";
+    }
+
+    private static boolean isLowFrequency(String cadence) {
+        if (cadence == null) {
+            return false;
+        }
+        String normalized = cadence.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        return normalized.equals("lowfrequencyofficial") || normalized.equals("lowfrequency");
+    }
+
     public String contentFreshness(FeedSource source, Instant now) {
         Instant lastNewItem = source.getLastNewItemAt();
         if (lastNewItem == null) {
             return "UNKNOWN";
         }
-        return Duration.between(lastNewItem, now).compareTo(contentFreshnessThreshold()) > 0
+        return Duration.between(lastNewItem, now).compareTo(contentFreshnessThreshold(source)) > 0
                 ? "STALE" : "CURRENT";
     }
 

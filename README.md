@@ -142,7 +142,7 @@ Feedline republishes merged RSS 2.0 feeds, one per category plus an all-items fe
 
 - `/feed/all.xml`
 - `/feed/world.xml`
-- `/feed/business-markets.xml`
+- `/feed/trading.xml`
 - `/feed/canada.xml`
 - `/feed/united-states.xml`
 - `/feed/europe.xml`

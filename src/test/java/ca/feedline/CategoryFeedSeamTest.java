@@ -110,6 +110,13 @@ class CategoryFeedSeamTest {
     }
 
     @Test
+    void businessMarketsRedirectsToTrading() throws Exception {
+        mockMvc.perform(get("/feed/business-markets.xml"))
+                .andExpect(status().isMovedPermanently())
+                .andExpect(header().string("Location", "/feed/trading.xml"));
+    }
+
+    @Test
     void conditionalGetReturnsNotModified() throws Exception {
         MvcResult first = mockMvc.perform(get("/feed/world.xml"))
                 .andExpect(status().isOk())
@@ -141,7 +148,7 @@ class CategoryFeedSeamTest {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         List<String> expected = List.of(
-                "/feed/world.xml", "/feed/business-markets.xml", "/feed/canada.xml",
+                "/feed/world.xml", "/feed/trading.xml", "/feed/canada.xml",
                 "/feed/united-states.xml", "/feed/europe.xml", "/feed/asia-pacific.xml",
                 "/feed/technology.xml", "/feed/official-releases.xml", "/feed/company-news.xml",
                 "/feed/all.xml");

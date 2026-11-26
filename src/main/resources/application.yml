@@ -289,6 +289,61 @@ feed:
     - name: Amazon News
       url: https://www.aboutamazon.com/rss/feed.rss
       enabled: true
+    - name: ECB Press Releases
+      url: https://www.ecb.europa.eu/rss/press.html
+      enabled: true
+      cadence-class: daily
+      tags: [EUR, FX]
+    - name: Bank of England News
+      url: https://www.bankofengland.co.uk/rss/news
+      enabled: true
+      cadence-class: daily
+      tags: [GBP, FX]
+    - name: Bank of Japan News
+      url: https://www.boj.or.jp/en/rss/whatsnew.xml
+      enabled: true
+      cadence-class: daily
+      tags: [JPY, FX]
+    - name: SNB News
+      url: https://www.snb.ch/public/rss/en/news
+      enabled: true
+      cadence-class: daily
+      tags: [CHF, FX]
+    - name: ForexLive
+      url: https://forexlive.com/feed
+      enabled: true
+      cadence-class: daily
+      tags: [FX]
+    - name: MarketPulse
+      url: http://feeds.feedburner.com/oandamarketpulsefx
+      enabled: true
+      cadence-class: daily
+      tags: [FX]
+    - name: RBA Media Releases
+      url: https://www.rba.gov.au/rss/rss-cb-media-releases.xml
+      enabled: true
+      cadence-class: low-frequency-official
+      tags: [AUD, FX]
+    - name: Benzinga
+      url: https://www.benzinga.com/feed
+      enabled: true
+      cadence-class: daily
+      tags: [USD]
+    - name: Statistics Canada Prices/CPI
+      url: https://www150.statcan.gc.ca/n1/rss/dai-quo/18-eng.atom
+      enabled: true
+      cadence-class: daily
+      tags: [CAD]
+    - name: Statistics Canada Labour
+      url: https://www150.statcan.gc.ca/n1/rss/dai-quo/14-eng.atom
+      enabled: true
+      cadence-class: daily
+      tags: [CAD]
+    - name: Statistics Canada Economic Accounts
+      url: https://www150.statcan.gc.ca/n1/rss/dai-quo/36-eng.atom
+      enabled: true
+      cadence-class: daily
+      tags: [CAD]
 
 logging:
   level:
