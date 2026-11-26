@@ -4,7 +4,6 @@ import ca.feedline.domain.FeedSource;
 import ca.feedline.domain.Item;
 import ca.feedline.domain.StoryCluster;
 import ca.feedline.domain.StoryClusterMember;
-import ca.feedline.dto.ClusterSummaryDto;
 import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.ItemRepository;
 import ca.feedline.repository.StoryClusterMemberRepository;
@@ -397,4 +396,48 @@ class StoryClusterSeamTest {
     }
 
 
+
+    @Test
+    void recencyBeatsSize() throws Exception {
+        FeedSource a = src("Alpha Outlet");
+        FeedSource b = src("Beta Outlet");
+        FeedSource c = src("Gamma Outlet");
+        FeedSource d = src("Delta Outlet");
+        FeedSource e = src("Epsilon Outlet");
+        Instant t = Instant.now();
+        it(a, "g-a", "older big headline", "(AP) news", t);
+        it(b, "g-b", "older big headline", "(AP) news", t.plusSeconds(1));
+        it(c, "g-c", "older big headline", "(AP) news", t.plusSeconds(2));
+        it(d, "g-d", "newer small headline", "(Reuters) news", t.plusSeconds(10));
+        it(e, "g-e", "newer small headline", "(Reuters) news", t.plusSeconds(11));
+
+        pass();
+
+        JsonNode res = getJson("/api/v1/clusters");
+        assertThat(res.size()).isEqualTo(2);
+        assertThat(res.get(0).get("sourceNames").size()).isEqualTo(2);
+        assertThat(res.get(1).get("sourceNames").size()).isEqualTo(3);
+    }
+
+    @Test
+    void agencyCountBreaksTimeTie() throws Exception {
+        FeedSource a = src("Alpha Outlet");
+        FeedSource b = src("Beta Outlet");
+        FeedSource c = src("Gamma Outlet");
+        FeedSource d = src("Delta Outlet");
+        FeedSource e = src("Epsilon Outlet");
+        Instant t = Instant.now();
+        it(a, "g-a", "tied big headline", "(AP) news", t);
+        it(b, "g-b", "tied big headline", "(AP) news", t);
+        it(c, "g-c", "tied big headline", "(AP) news", t);
+        it(d, "g-d", "tied small headline", "(Reuters) news", t);
+        it(e, "g-e", "tied small headline", "(Reuters) news", t);
+
+        pass();
+
+        JsonNode res = getJson("/api/v1/clusters");
+        assertThat(res.size()).isEqualTo(2);
+        assertThat(res.get(0).get("sourceNames").size()).isEqualTo(3);
+        assertThat(res.get(1).get("sourceNames").size()).isEqualTo(2);
+    }
 }
