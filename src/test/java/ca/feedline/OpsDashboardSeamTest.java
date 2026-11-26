@@ -141,6 +141,8 @@ class OpsDashboardSeamTest {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(js).contains("feedly.com/i/subscription/feed/");
+        assertThat(js).contains("isPublicOrigin");
+        assertThat(js).contains("cannot reach this local address");
     }
 
     @Test
