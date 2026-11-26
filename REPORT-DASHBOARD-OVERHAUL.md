@@ -20,3 +20,9 @@ SpotBugs: No bugs found.
 - Verification (operator-run, clean tree at f63e69f, git
   status --short EMPTY before and after): Tests run: 244,
   Failures: 0, Errors: 0, Skipped: 0. SpotBugs: 0 bugs.
+
+## B1c — category chips + explorer window
+
+Code commit: dd9d37a
+Base SHA: b45fa8a
+mvn clean verify: BUILD SUCCESS; Tests run: 245, Failures: 0, Errors: 0, Skipped: 0
