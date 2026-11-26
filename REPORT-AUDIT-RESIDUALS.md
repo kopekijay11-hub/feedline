@@ -176,6 +176,8 @@ No errors/warnings found" (failOnError=true; 0 findings). BUILD SUCCESS.
 PUSH PROOF
 ------------------------------------------------------------
 
-PENDING — push to origin/audit-residuals to follow; the completion
-message will state local tip == origin/audit-residuals tip with full
-SHAs.
+Pushed to origin/audit-residuals via fast-forward (no force, no rebase,
+no dropped commits); branch base 44eba71a. Push proof — local tip ==
+origin/audit-residuals tip, full SHAs — is stated in the completion
+message (the report names no hash of a commit containing it or
+descending from it).
