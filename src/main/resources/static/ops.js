@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const CATEGORY_ORDER = ['All', 'World', 'Business & Markets', 'Canada', 'United States', 'Europe', 'Asia-Pacific', 'Technology', 'Official Releases', 'Company News', 'Other'];
+  const CATEGORY_ORDER = ['All', 'World', 'Trading', 'Canada', 'United States', 'Europe', 'Asia-Pacific', 'Technology', 'Official Releases', 'Company News', 'Other'];
 
   const state = {
     adminKey: '',
@@ -190,10 +190,10 @@
 
   function setDefaultWindow() {
     const now = new Date();
-    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     ui.filterTo.value = now.toISOString();
     ui.filterFrom.value = from.toISOString();
-    if (!ui.filterSize.value) ui.filterSize.value = '20';
+    if (!ui.filterSize.value) ui.filterSize.value = '50';
   }
 
   function badge(status) {
@@ -490,7 +490,10 @@
   function categoryList() {
     const present = new Set((state.lastSources || []).map(s => categoryOf(s.name)));
     const cats = CATEGORY_ORDER.filter(c => c !== 'All' && present.has(c));
-    if (present.has('Other') && cats.indexOf('Other') === -1) cats.push('Other');
+    for (const s of state.lastSources || []) {
+      const c = categoryOf(s.name);
+      if (c !== 'All' && cats.indexOf(c) === -1) cats.push(c);
+    }
     return cats;
   }
 

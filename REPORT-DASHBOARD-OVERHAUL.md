@@ -31,3 +31,8 @@ git status EMPTY before/after: yes (after commit).
 - code commit: 31530af
 - tests: recencyBeatsSize, agencyCountBreaksTimeTie
 - verify: Tests run: 246, Failures: 0, Errors: 0, Skipped: 0; BUILD SUCCESS
+## B1c — category chips + explorer window
+
+Code commit: dd9d37a
+Base SHA: b45fa8a
+mvn clean verify: BUILD SUCCESS; Tests run: 245, Failures: 0, Errors: 0, Skipped: 0
