@@ -20,3 +20,10 @@ SpotBugs: No bugs found.
 - Verification (operator-run, clean tree at f63e69f, git
   status --short EMPTY before and after): Tests run: 244,
   Failures: 0, Errors: 0, Skipped: 0. SpotBugs: 0 bugs.
+
+## B1b — subscribe popover
+
+Code commit: 4cde478
+Raw totals: verify process died/hung before completion; not observed.
+SpotBugs verdict: not observed.
+git status EMPTY before/after: yes (after commit).
