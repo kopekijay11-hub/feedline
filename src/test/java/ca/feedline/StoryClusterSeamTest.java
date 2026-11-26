@@ -4,6 +4,7 @@ import ca.feedline.domain.FeedSource;
 import ca.feedline.domain.Item;
 import ca.feedline.domain.StoryCluster;
 import ca.feedline.domain.StoryClusterMember;
+import ca.feedline.dto.ClusterSummaryDto;
 import ca.feedline.repository.FeedSourceRepository;
 import ca.feedline.repository.ItemRepository;
 import ca.feedline.repository.StoryClusterMemberRepository;
@@ -394,4 +395,6 @@ class StoryClusterSeamTest {
         return items.findBySourceIdOrderByFetchedAtDesc(s.getId()).stream()
                 .findFirst().map(Item::getId).orElse(null);
     }
+
+
 }
