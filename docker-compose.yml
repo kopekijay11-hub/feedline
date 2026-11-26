@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: feedline
       POSTGRES_PASSWORD: feedline
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - feedline_db_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,7 +32,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
     ports:
-      - "9092:19092"
+      - "127.0.0.1:9092:19092"
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:19092 --list"]
       interval: 10s
